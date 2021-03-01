@@ -10,13 +10,13 @@ class FrameStack(Wrapper):
         super(FrameStack, self).__init__(env)
         self._num_stack = num_stack
         self._frames = deque(maxlen=num_stack)
-        low = np.repeat(self.observation_space.low[np.newaxis, ...], self._num_stack, axis=0)
-        high = np.repeat(self.observation_space.high[np.newaxis, ...], self._num_stack, axis=0)
+        low = np.repeat(self.observation_space.low, self._num_stack, axis=0)
+        high = np.repeat(self.observation_space.high, self._num_stack, axis=0)
         self.observation_space = Box(low=low, high=high, dtype=self.observation_space.dtype)
 
     def _get_observation(self):
         assert len(self._frames) == self._num_stack, (len(self._frames), self._num_stack)
-        return np.array(self._frames)
+        return np.array(np.concatenate(self._frames))
 
     def step(self, action):
         observation, reward, done, info = self.env.step(action)
