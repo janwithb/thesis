@@ -51,6 +51,23 @@ class SequenceReplayBuffer(object):
         idxs = random.sample(xrange(self.cur_size), n)
         return np.array([self.buffer[idx] for idx in idxs])
 
+    def get_chunk_batch(self, n, t):
+        """Get batch of episodes with length t to train on."""
+        # random batch
+        idxs = random.sample(xrange(self.cur_size), n)
+        batch = np.array([self.buffer[idx] for idx in idxs])
+        for episode in batch:
+            start_idx = random.randint(0, len(episode.states) - t)
+            states_chunk = np.array(episode.states)[start_idx:start_idx + t]
+            actions_chunk = np.array(episode.actions)[start_idx:start_idx + t]
+            rewards_chunk = np.array(episode.rewards)[start_idx:start_idx + t]
+            episode.states = states_chunk
+            episode.actions = actions_chunk
+            episode.rewards = rewards_chunk
+            if start_idx != 0:
+                episode.starting_state = episode.states[start_idx - 1]
+        return batch
+
     def save(self, save_dir):
         payload = self.buffer
         with open(os.path.join(save_dir, 'replay_buffer.pkl'), 'wb') as f:
