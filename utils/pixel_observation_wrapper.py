@@ -6,8 +6,13 @@ from gym import ObservationWrapper
 
 
 class PixelObservationWrapper(ObservationWrapper):
-    def __init__(self, env, crop_center_observation=True, resize_observation=True, observation_size=100,
-                 grayscale_observation=True, normalize_observation=True):
+    def __init__(self,
+                 env,
+                 crop_center_observation=True,
+                 resize_observation=True,
+                 observation_size=100,
+                 grayscale_observation=True,
+                 normalize_observation=True):
         super(PixelObservationWrapper, self).__init__(env)
 
         self._env = env

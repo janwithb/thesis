@@ -6,8 +6,11 @@ from gym import Wrapper
 
 
 class FrameStack(Wrapper):
-    def __init__(self, env, num_stack):
+    def __init__(self,
+                 env,
+                 num_stack):
         super(FrameStack, self).__init__(env)
+
         self._num_stack = num_stack
         self._frames = deque(maxlen=num_stack)
         low = np.repeat(self.observation_space.low, self._num_stack, axis=0)
