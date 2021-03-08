@@ -28,7 +28,7 @@ class PixelObservationWrapper(ObservationWrapper):
         if np.issubdtype(pixels.dtype, np.integer):
             low, high = (0, 255)
         elif np.issubdtype(pixels.dtype, np.float32):
-            low, high = (np.float32(0), np.float32(1))
+            low, high = (-np.float32(1), np.float32(1))
         else:
             raise TypeError(pixels.dtype)
         pixels_space = spaces.Box(shape=pixels.shape, low=low, high=high, dtype=pixels.dtype)
@@ -75,4 +75,4 @@ class PixelObservationWrapper(ObservationWrapper):
         return grayscale_pil_img
 
     def normalize_observation(self, observation):
-        return np.array(observation).astype(np.float32) / 255.0
+        return np.array(observation).astype(np.float32) / 255.0 - 0.5
