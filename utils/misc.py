@@ -92,7 +92,7 @@ def output_padding_shape(h_in, conv_out, padding, kernel_size, stride):
 
 
 def infer_leading_dims(tensor, dim):
-    """Looks for up to two leading dimensions in ``tensor``, before
+    """Looks for up to two leading dimensions in ``tensor``,infer_leading_dims before
     the data dimensions, of which there are assumed to be ``dim`` number.
     For use at beginning of model's ``forward()`` method, which should
     finish with ``restore_leading_dims()`` (see that function for help.)
@@ -105,7 +105,7 @@ def infer_leading_dims(tensor, dim):
     lead_dim = tensor.dim() - dim
     assert lead_dim in (0, 1, 2)
     if lead_dim == 2:
-        T, B = tensor.shape[:2]
+        B, T = tensor.shape[:2]
     else:
         T = 1
         B = 1 if lead_dim == 0 else tensor.shape[0]
@@ -147,17 +147,18 @@ def compute_return(reward: torch.Tensor,
     reward, value, and discount are all shape [horizon - 1, batch, 1] (last element is cut off)
     Bootstrap is [batch, 1]
     """
-    next_values = torch.cat([value[1:], bootstrap[None]], 0)
+    next_values = torch.cat([value[:, 1:], bootstrap[:, None]], 1)
     target = reward + discount * next_values * (1 - lambda_)
-    timesteps = list(range(reward.shape[0] - 1, -1, -1))
+    timesteps = list(range(reward.shape[1] - 1, -1, -1))
     outputs = []
     accumulated_reward = bootstrap
     for t in timesteps:
-        inp = target[t]
-        discount_factor = discount[t]
+        inp = target[:, t]
+        discount_factor = discount[:, t]
         accumulated_reward = inp + discount_factor * lambda_ * accumulated_reward
         outputs.append(accumulated_reward)
     returns = torch.flip(torch.stack(outputs), [0])
+    returns = torch.transpose(returns, 0, 1)
     return returns
 
 
@@ -167,3 +168,13 @@ def flatten_rssm_state(state: RSSMState):
     state.stoch = torch.flatten(state.stoch, start_dim=0, end_dim=1)
     state.deter = torch.flatten(state.deter, start_dim=0, end_dim=1)
     return state
+
+
+def slice_rssm_state(state: RSSMState, batch_size, chunk_size):
+    new_state = RSSMState(
+        state.mean[:batch_size, chunk_size],
+        state.std[:batch_size, chunk_size],
+        state.stoch[:batch_size, chunk_size],
+        state.deter[:batch_size, chunk_size]
+    )
+    return new_state
