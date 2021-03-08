@@ -346,7 +346,7 @@ class Dreamer:
     def get_imagination_video(self, observation, image_pred, action, post, n_video=2, t_video=20):
         lead_dim, batch_t, batch_b, img_shape = infer_leading_dims(observation, 3)
         ground_truth = observation[:n_video, :] + 0.5
-        reconstruction = image_pred.mean[:n_video, :t_video]
+        reconstruction = image_pred.mean[:n_video, :t_video] + 0.5
         prev_state = get_state(post, n_video, t_video - 1)
         prior = self.rollout.rollout_transition(batch_t - t_video, action[:n_video, t_video:], prev_state)
         imagined = self.observation_decoder(get_feat(prior)).mean + 0.5
