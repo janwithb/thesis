@@ -22,6 +22,14 @@ def stack_states(rssm_states: list, dim):
     )
 
 
+def detach_rssm_state(state: RSSMState):
+    state.mean = state.mean.detach()
+    state.std = state.std.detach()
+    state.stoch = state.stoch.detach()
+    state.deter = state.deter.detach()
+    return state
+
+
 def get_feat(rssm_state: RSSMState):
     return torch.cat((rssm_state.stoch, rssm_state.deter), dim=-1)
 
@@ -160,12 +168,12 @@ class RSSMRollout(RollOutModule):
         priors = []
         posteriors = []
         for t in range(steps):
-            prior_state, posterior_state = self.representation_model(obs_embed[t], action[t], prev_state)
+            prior_state, posterior_state = self.representation_model(obs_embed[:, t], action[:, t], prev_state)
             priors.append(prior_state)
             posteriors.append(posterior_state)
             prev_state = posterior_state
-        prior = stack_states(priors, dim=0)
-        post = stack_states(posteriors, dim=0)
+        prior = stack_states(priors, dim=1)
+        post = stack_states(posteriors, dim=1)
         return prior, post
 
     def rollout_transition(self, steps: int, action: torch.Tensor, prev_state: RSSMState):
@@ -179,9 +187,9 @@ class RSSMRollout(RollOutModule):
         priors = []
         state = prev_state
         for t in range(steps):
-            state = self.transition_model(action[t], state)
+            state = self.transition_model(action[:, t], state)
             priors.append(state)
-        return stack_states(priors, dim=0)
+        return stack_states(priors, dim=1)
 
     def rollout_policy(self, steps: int, policy, prev_state: RSSMState):
         """
@@ -195,13 +203,12 @@ class RSSMRollout(RollOutModule):
         state = prev_state
         next_states = []
         actions = []
-        # state = buffer_method(state, 'detach')
+        state = detach_rssm_state(state)
         for t in range(steps):
-            # action, _ = policy(buffer_method(state, 'detach'))
-            action, _ = policy(state)
+            action, _ = policy(detach_rssm_state(state))
             state = self.transition_model(action, state)
             next_states.append(state)
             actions.append(action)
-        next_states = stack_states(next_states, dim=0)
-        actions = torch.stack(actions, dim=0)
+        next_states = stack_states(next_states, dim=1)
+        actions = torch.stack(actions, dim=1)
         return next_states, actions
