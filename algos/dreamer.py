@@ -7,7 +7,7 @@ from models.actor import ActorModel
 from models.decoder import ObservationDecoder
 from models.dense import DenseModel
 from models.encoder import ObservationEncoder
-from models.rssm import RSSMTransition, RSSMRepresentation, RSSMRollout, get_feat, get_dist, RSSMState
+from models.rssm import RSSMTransition, RSSMRepresentation, RSSMRollout, get_feat, get_dist, RSSMState, get_state
 from utils.logger import Logger
 from utils.misc import get_parameters, infer_leading_dims, FreezeParameters, compute_return, flatten_rssm_state
 
@@ -209,7 +209,7 @@ class Dreamer:
                 self.logger.log('train_model/transition_loss', div, self.step)
                 self.logger.log('train_model/model_loss', model_loss, self.step)
                 reconstruction_video = self.get_reconstruction_video(observation, image_pred)
-                imagination_video = self.get_imagination_video(observation, action)
+                imagination_video = self.get_imagination_video(observation, image_pred, action, post)
                 self.logger.log_video('train_model/reconstruction_video', reconstruction_video, self.step)
                 self.logger.log_video('train_model/imagination_video', imagination_video, self.step)
         return model_loss, post
@@ -336,20 +336,23 @@ class Dreamer:
         _, state = self.representation(obs_embed, prev_action, prev_state)
         return state
 
-    def get_reconstruction_video(self, observation, image_pred, n_video=2, t_video=20):
-        ground_truth = observation[:n_video, :t_video] + 0.5
-        reconstruction = image_pred.mean[:n_video, :t_video] + 0.5
+    def get_reconstruction_video(self, observation, image_pred, n_video=2):
+        ground_truth = observation[:n_video, :] + 0.5
+        reconstruction = image_pred.mean[:n_video, :] + 0.5
         reconstruction_error = (reconstruction - ground_truth + 1) / 2
         reconstruction_video = torch.cat((ground_truth, reconstruction, reconstruction_error), dim=3)
         return reconstruction_video
 
-    def get_imagination_video(self, observation, action, n_video=2, t_video=20):
-        ground_truth = observation[:n_video, :t_video] + 0.5
-        prev_state = self.representation.initial_state(n_video, device=action.device, dtype=action.dtype)
-        prior = self.rollout.rollout_transition(t_video, action[:n_video, :], prev_state)
+    def get_imagination_video(self, observation, image_pred, action, post, n_video=2, t_video=20):
+        lead_dim, batch_t, batch_b, img_shape = infer_leading_dims(observation, 3)
+        ground_truth = observation[:n_video, :] + 0.5
+        reconstruction = image_pred.mean[:n_video, :t_video]
+        prev_state = get_state(post, n_video, t_video - 1)
+        prior = self.rollout.rollout_transition(batch_t - t_video, action[:n_video, t_video:], prev_state)
         imagined = self.observation_decoder(get_feat(prior)).mean + 0.5
-        imagined_error = (imagined - ground_truth + 1) / 2
-        imagined_video = torch.cat((ground_truth, imagined, imagined_error), dim=3)
+        model = torch.cat((reconstruction, imagined), dim=1)
+        imagined_error = (model - ground_truth + 1) / 2
+        imagined_video = torch.cat((ground_truth, model, imagined_error), dim=3)
         return imagined_video
 
     def evaluate(self, episodes):
