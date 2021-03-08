@@ -22,6 +22,15 @@ def stack_states(rssm_states: list, dim):
     )
 
 
+def get_state(state: RSSMState, batch_b, batch_t):
+    return RSSMState(
+        state.mean[:batch_b, batch_t],
+        state.std[:batch_b, batch_t],
+        state.stoch[:batch_b, batch_t],
+        state.deter[:batch_b, batch_t]
+    )
+
+
 def detach_rssm_state(state: RSSMState):
     state.mean = state.mean.detach()
     state.std = state.std.detach()
