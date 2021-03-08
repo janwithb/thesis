@@ -68,13 +68,13 @@ class SequenceReplayBuffer(object):
                 episode.starting_state = episode.states[start_idx - 1]
         return batch
 
-    def save(self, save_dir):
+    def save(self, save_dir, save_name):
         payload = self.buffer
-        with open(os.path.join(save_dir, 'replay_buffer.pkl'), 'wb') as f:
+        with open(os.path.join(save_dir, save_name), 'wb') as f:
             pickle.dump(payload, f)
 
-    def load(self, save_dir):
-        with open(os.path.join(save_dir, 'replay_buffer.pkl'), 'rb') as f:
+    def load(self, load_dir):
+        with open(os.path.join(load_dir), 'rb') as f:
             payload = pickle.load(f)
             episodes = np.array([payload[idx] for idx in range(len(payload))])
             self.add(episodes)
