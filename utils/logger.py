@@ -20,7 +20,7 @@ class Logger:
 
     def _try_sw_log_video(self, key, frames, step):
         if self._sw is not None:
-            self._sw.add_video(key, frames, step, fps=30)
+            self._sw.add_video(key, frames, step, fps=20)
 
     def _try_sw_log_histogram(self, key, histogram, step):
         if self._sw is not None:
