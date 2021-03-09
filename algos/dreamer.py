@@ -325,7 +325,7 @@ class Dreamer:
         if prev_action is None:
             prev_action = torch.zeros(self.action_size, device=observation.device, dtype=observation.dtype)
         if prev_state is None:
-            prev_state = self.representation.initial_state(prev_action.size(0), device=prev_action.device,
+            prev_state = self.representation.initial_state(1, device=prev_action.device,
                                                            dtype=prev_action.dtype)
         # reshape variables
         observation = torch.unsqueeze(observation, 0)
