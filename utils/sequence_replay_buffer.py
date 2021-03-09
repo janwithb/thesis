@@ -58,14 +58,14 @@ class SequenceReplayBuffer(object):
         batch = np.array([self.buffer[idx] for idx in idxs])
         for episode in batch:
             start_idx = random.randint(0, len(episode.states) - t)
+            if start_idx != 0:
+                episode.starting_state = episode.states[start_idx - 1]
             states_chunk = np.array(episode.states)[start_idx:start_idx + t]
             actions_chunk = np.array(episode.actions)[start_idx:start_idx + t]
             rewards_chunk = np.array(episode.rewards)[start_idx:start_idx + t]
             episode.states = states_chunk
             episode.actions = actions_chunk
             episode.rewards = rewards_chunk
-            if start_idx != 0:
-                episode.starting_state = episode.states[start_idx - 1]
         return batch
 
     def save(self, save_dir, save_name):
