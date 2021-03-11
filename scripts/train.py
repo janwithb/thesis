@@ -4,8 +4,7 @@ import time
 import gym
 import torch
 
-from tqdm import tqdm
-from algos.dreamer import Dreamer
+from algos.dreamer_value import DreamerValue
 from utils.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
 from utils.misc import make_dir, save_config
@@ -35,10 +34,10 @@ def parse_args():
     # train
     parser.add_argument('--init_episodes', default=5, type=int)
     parser.add_argument('--init_episode_length', default=100, type=int)
-    parser.add_argument('--iter_episodes', default=10, type=int)
+    parser.add_argument('--iter_episodes', default=5, type=int)
     parser.add_argument('--iter_episode_length', default=100, type=int)
-    parser.add_argument('--training_iterations', default=20, type=int)
-    parser.add_argument('--imagination_iterations', default=4, type=int)
+    parser.add_argument('--training_iterations', default=1000, type=int)
+    parser.add_argument('--model_iterations', default=2, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--chunk_size', default=50, type=int)
@@ -84,8 +83,6 @@ def parse_args():
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)
-    parser.add_argument('--save_iter_video', default=False, action='store_true')
-    parser.add_argument('--save_iter_video_freq', default=2, type=int)
     parser.add_argument('--save_iter_model', default=False, action='store_true')
     parser.add_argument('--save_iter_model_freq', default=2, type=int)
     parser.add_argument('--load_model', default=False, action='store_true')
@@ -131,22 +128,27 @@ def main():
     # save training configuration
     save_config(config_dir, args)
 
+    # initialize logger
+    logger = Logger(tensorboard_dir, tensorboard_log=args.tensorboard_log)
+
+    # initialize sampler
+    sampler = Sampler(env)
+
     # initialize and preload replay buffer
     replay_buffer = SequenceReplayBuffer(args.replay_buffer_capacity)
     if args.load_buffer:
         replay_buffer.load(args.load_buffer_dir)
 
-    # initialize logger
-    logger = Logger(tensorboard_dir, tensorboard_log=args.tensorboard_log)
-
     # gpu settings
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # algorithm
-    dreamer = Dreamer(
+    dreamer = DreamerValue(
         logger,
+        sampler,
+        replay_buffer,
         device=device,
-        tensorboard_log_freq=args.imagination_iterations,
+        tensorboard_log_freq=args.model_iterations,
         image_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
         reward_shape=(1,),
@@ -177,60 +179,31 @@ def main():
         expl_min=args.expl_min
     )
 
-    # initialize sampler
-    sampler = Sampler(
-        env,
-        dreamer,
-        replay_buffer=replay_buffer
-    )
-
     # load model
     if args.load_model:
         dreamer.load_model(args.load_model_dir)
 
-    # collect initial episodes
-    sampler.collect_episodes(args.init_episodes, args.init_episode_length, random=True, render=args.render_training)
-
-    # main training loop
-    for it in tqdm(range(args.training_iterations), desc='Training progress'):
-        itr_start_time = time.time()
-        dreamer.training = True
-        dreamer.eval = False
-
-        # model training loop
-        for img_it in tqdm(range(args.imagination_iterations), desc='Imagination progress'):
-            # save video frequently
-            if args.save_iter_video and img_it % args.save_iter_video_freq == 0:
-                sampler.reset_video_recorder(video_dir, 'video_iter' + str(it))
-
-            samples = replay_buffer.get_chunk_batch(args.batch_size, args.chunk_size)
-            dreamer.optimize(samples)
-            dreamer.img_itr += 1
-
-        # collect new data
-        sampler.collect_episodes(args.iter_episodes, args.iter_episode_length, render=args.render_training)
-
-        # save model frequently
-        if args.save_iter_model and it % args.save_iter_model_freq == 0:
-            dreamer.save_model(model_dir, 'model_iter_' + str(it))
-
-        itr_time = time.time() - itr_start_time
-        logger.log('train/itr_time', itr_time, dreamer.step)
-        dreamer.itr += 1
-
-        # evaluate policy
-        if it % args.eval_freq == 0:
-            eval_start_time = time.time()
-            dreamer.training = False
-            dreamer.eval = True
-            if args.save_eval_video:
-                sampler.reset_video_recorder(video_dir, 'video_eval' + str(it))
-            with torch.no_grad():
-                episodes = sampler.collect_episodes(args.eval_episodes, args.eval_episode_length, save_episodes=False,
-                                                    render=args.render_eval)
-            dreamer.evaluate(episodes)
-            eval_time = time.time() - eval_start_time
-            logger.log('eval/eval_time', eval_time, dreamer.step)
+    # train model
+    dreamer.train(
+        init_episodes=args.init_episodes,
+        init_episode_length=args.init_episode_length,
+        iter_episodes=args.iter_episodes,
+        iter_episode_length=args.iter_episode_length,
+        training_iterations=args.training_iterations,
+        model_iterations=args.model_iterations,
+        batch_size=args.batch_size,
+        chunk_size=args.chunk_size,
+        render_training=args.render_training,
+        save_iter_model=args.save_iter_model,
+        save_iter_model_freq=args.save_iter_model_freq,
+        model_dir=model_dir,
+        eval_freq=args.eval_freq,
+        eval_episodes=args.eval_episodes,
+        eval_episode_length=args.eval_episode_length,
+        render_eval=args.render_eval,
+        save_eval_video=args.save_eval_video,
+        video_dir=video_dir
+    )
 
     # save training
     replay_buffer.save(buffer_dir, 'replay_buffer')
