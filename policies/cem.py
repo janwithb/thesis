@@ -56,7 +56,7 @@ class CEM(object):
 
             # pick best action sequence
             sorted_sim_numbers = torch.squeeze(torch.argsort(cumulated_reward, dim=0, descending=True))
-            elite_sim_numbers = sorted_sim_numbers[:self.num_elites]
+            elite_sim_numbers = sorted_sim_numbers[:self.num_elites].detach().cpu().numpy()
             elite_actions = samples[elite_sim_numbers, :]
             mu = np.mean(elite_actions, 0)
             sigma = np.std(elite_actions, 0)
