@@ -31,11 +31,15 @@ class CEM(object):
         sigma = self.sigma
 
         for i in range(self.max_iterations):
-            shape = (self.num_control_samples, self.horizon * self.action_space.shape[0])
-            actions = np.float32(np.random.normal(mu, sigma, size=shape))
-            actions = np.clip(actions, a_min=self.action_space.low, a_max=self.action_space.high)
-            actions = torch.as_tensor(actions, device=device)
-            actions = torch.unsqueeze(actions, dim=2)
+            # sample actions
+            original_shape = (self.num_control_samples, self.horizon, self.action_space.shape[0])
+            sample_shape = (self.num_control_samples, self.horizon * self.action_space.shape[0])
+            samples = np.float32(np.random.normal(mu, sigma, size=sample_shape))
+            samples = np.clip(samples, a_min=self.action_space.low[0], a_max=self.action_space.high[0])
+
+            # prepare samples
+            actions = torch.as_tensor(samples, device=device)
+            actions = torch.reshape(actions, original_shape)
 
             # prepare initial states
             initial_states = np.full(self.num_control_samples, state).tolist()
@@ -53,9 +57,9 @@ class CEM(object):
             # pick best action sequence
             sorted_sim_numbers = torch.squeeze(torch.argsort(cumulated_reward, dim=0, descending=True))
             elite_sim_numbers = sorted_sim_numbers[:self.num_elites]
-            elite_actions = actions[elite_sim_numbers, :]
-            mu = torch.squeeze(torch.mean(elite_actions, 0), dim=1)
-            sigma = torch.squeeze(torch.std(elite_actions, 0), dim=1)
+            elite_actions = samples[elite_sim_numbers, :]
+            mu = np.mean(elite_actions, 0)
+            sigma = np.std(elite_actions, 0)
+        best_sample = np.reshape(mu, (self.horizon, self.action_space.shape[0]))[0]
 
-        best_action = mu[0].detach().cpu().numpy()
-        return np.array([best_action])
+        return np.array(best_sample)
