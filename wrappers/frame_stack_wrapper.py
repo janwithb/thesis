@@ -8,7 +8,7 @@ from gym import Wrapper
 class FrameStack(Wrapper):
     def __init__(self,
                  env,
-                 num_stack):
+                 num_stack=3):
         super(FrameStack, self).__init__(env)
 
         self._num_stack = num_stack
