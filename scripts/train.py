@@ -21,6 +21,7 @@ def parse_args():
     # environment
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
+    parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--crop_center_observation', default=True, action='store_true')
@@ -124,7 +125,7 @@ def main():
     # make work directory
     ts = time.gmtime()
     ts = time.strftime("%Y-%m-%d-%H-%M-%S", ts)
-    exp_name = args.env_name + '-' + ts
+    exp_name = args.domain_name + '-' + args.task_name + '-' + ts
     args.work_dir = args.work_dir + '/' + exp_name
     make_dir(args.work_dir)
 
