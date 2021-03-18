@@ -55,6 +55,7 @@ class DreamerMPC(DreamerBase):
 
         if controller_type == 'random_shooting':
             self.controller = RandomShooting(
+                device,
                 action_space,
                 self.rollout,
                 self.reward_model,
@@ -63,6 +64,7 @@ class DreamerMPC(DreamerBase):
             )
         elif controller_type == 'cem':
             self.controller = CEM(
+                device,
                 action_space,
                 self.rollout,
                 self.reward_model,
@@ -145,7 +147,7 @@ class DreamerMPC(DreamerBase):
                               save_eval_video, video_dir, render_eval)
 
     def mpc_policy(self, state):
-        action = self.controller.get_action(state, self.device)
+        action = self.controller.get_action(state)
         return action
 
     def save_model(self, model_path, model_name):
