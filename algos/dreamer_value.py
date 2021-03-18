@@ -32,6 +32,7 @@ class DreamerValue(DreamerBase):
                  grad_clip=100.0,
                  free_nats=3,
                  kl_scale=1,
+                 action_repeat=1,
                  value_shape=None,
                  value_layers=3,
                  value_hidden=200,
@@ -63,7 +64,8 @@ class DreamerValue(DreamerBase):
                          model_lr=model_lr,
                          grad_clip=grad_clip,
                          free_nats=free_nats,
-                         kl_scale=kl_scale)
+                         kl_scale=kl_scale,
+                         action_repeat=action_repeat)
 
         self.imagine_horizon = imagine_horizon
         self.discount = discount
@@ -126,7 +128,7 @@ class DreamerValue(DreamerBase):
         episodes, total_steps = self.sampler.collect_random_episodes(init_episodes, init_episode_length,
                                                                      render=render_training)
         self.replay_buffer.add(episodes)
-        self.step += total_steps
+        self.step += total_steps * self.action_repeat
 
         # main training loop
         for it in tqdm(range(training_iterations), desc='Training progress'):
@@ -148,7 +150,7 @@ class DreamerValue(DreamerBase):
                                                                          render=render_training)
 
             self.replay_buffer.add(episodes)
-            self.step += total_steps
+            self.step += total_steps * self.action_repeat
 
             # save model frequently
             if save_iter_model and it % save_iter_model_freq == 0:

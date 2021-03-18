@@ -27,6 +27,7 @@ class DreamerMPC(DreamerBase):
                  grad_clip=100.0,
                  free_nats=3,
                  kl_scale=1,
+                 action_repeat=1,
                  controller_type='random_shooting',
                  action_space=None,
                  horizon=20,
@@ -49,7 +50,8 @@ class DreamerMPC(DreamerBase):
                          model_lr=model_lr,
                          grad_clip=grad_clip,
                          free_nats=free_nats,
-                         kl_scale=kl_scale)
+                         kl_scale=kl_scale,
+                         action_repeat=action_repeat)
 
         if controller_type == 'random_shooting':
             self.controller = RandomShooting(
@@ -98,7 +100,7 @@ class DreamerMPC(DreamerBase):
         episodes, total_steps = self.sampler.collect_random_episodes(init_episodes, init_episode_length,
                                                                      render=render_training)
         self.replay_buffer.add(episodes)
-        self.step += total_steps
+        self.step += total_steps * self.action_repeat
 
         # main training loop
         for it in tqdm(range(training_iterations), desc='Training progress'):
@@ -124,7 +126,7 @@ class DreamerMPC(DreamerBase):
                                                                            render=render_training)
 
             episodes = rand_episodes + pol_episodes
-            total_steps = rand_steps + pol_steps
+            total_steps = (rand_steps + pol_steps) * self.action_repeat
 
             self.replay_buffer.add(episodes)
             self.step += total_steps

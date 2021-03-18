@@ -28,7 +28,8 @@ class DreamerBase:
                  model_lr=6e-4,
                  grad_clip=100.0,
                  free_nats=3,
-                 kl_scale=1):
+                 kl_scale=1,
+                 action_repeat=1):
         super().__init__()
 
         self.logger = logger
@@ -39,6 +40,7 @@ class DreamerBase:
         self.grad_clip = grad_clip
         self.free_nats = free_nats
         self.kl_scale = kl_scale
+        self.action_repeat = action_repeat
         self.training = True
         self.eval = False
         self.itr = 1
@@ -176,7 +178,7 @@ class DreamerBase:
         # calculate episode rewards
         all_ep_rewards = []
         for episode in episodes:
-            ep_reward = np.array(episode.rewards)
+            ep_reward = np.sum(episode.rewards)
             all_ep_rewards.append(ep_reward)
         mean_ep_reward = np.mean(all_ep_rewards)
         best_ep_reward = np.max(all_ep_rewards)
