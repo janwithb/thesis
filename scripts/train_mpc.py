@@ -1,14 +1,16 @@
 import argparse
 import os
 import time
-import gym
 import torch
 
+from dm_control import suite
 from algos.dreamer_mpc import DreamerMPC
-from utils.frame_stack_wrapper import FrameStack
+from wrappers.action_repeat_wrapper import ActionRepeat
+from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
 from utils.misc import make_dir, save_config
-from utils.pixel_observation_wrapper import PixelObservationWrapper
+from wrappers.gym_wrapper import GymWrapper
+from wrappers.pixel_observation_wrapper import PixelObservation
 from utils.sampler import Sampler
 from utils.sequence_replay_buffer import SequenceReplayBuffer
 
@@ -17,10 +19,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # environment
-    parser.add_argument('--env_name', default='Pendulum-v0', type=str)
+    parser.add_argument('--domain_name', default='cheetah', type=str)
+    parser.add_argument('--task_name', default='run', type=str)
+    parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
-    parser.add_argument('--crop_center_observation', default=True, action='store_true')
-    parser.add_argument('--resize_observation', default=True, action='store_true')
+    parser.add_argument('--action_repeat', default=3, type=int)
+    parser.add_argument('--crop_center_observation', default=False, action='store_true')
+    parser.add_argument('--resize_observation', default=False, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
     parser.add_argument('--grayscale_observation', default=False, action='store_true')
     parser.add_argument('--normalize_observation', default=True, action='store_true')
@@ -34,13 +39,13 @@ def parse_args():
     # train
     parser.add_argument('--init_episodes', default=3, type=int)
     parser.add_argument('--init_episode_length', default=100, type=int)
-    parser.add_argument('--policy_episodes', default=1, type=int)
+    parser.add_argument('--policy_episodes', default=5, type=int)
     parser.add_argument('--policy_episode_length', default=100, type=int)
-    parser.add_argument('--random_episodes', default=1, type=int)
+    parser.add_argument('--random_episodes', default=5, type=int)
     parser.add_argument('--random_episode_length', default=100, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
     parser.add_argument('--model_iterations', default=2, type=int)
-    parser.add_argument('--render_training', default=False, action='store_true')
+    parser.add_argument('--render_training', default=True, action='store_true')
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--chunk_size', default=50, type=int)
     parser.add_argument('--discount', default=0.99, type=float)
@@ -86,11 +91,14 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # create gym environment
-    env = gym.make(args.env_name)
+    # create dm_control env
+    env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+
+    # wrap env to gym env
+    env = GymWrapper(env)
 
     # augment observations by pixel values
-    env = PixelObservationWrapper(
+    env = PixelObservation(
         env,
         crop_center_observation=args.crop_center_observation,
         resize_observation=args.resize_observation,
@@ -102,10 +110,13 @@ def main():
     # stack several consecutive frames together
     env = FrameStack(env, args.frame_stack)
 
+    # repeat actions
+    env = ActionRepeat(env, args.action_repeat)
+
     # make work directory
     ts = time.gmtime()
     ts = time.strftime("%Y-%m-%d-%H-%M-%S", ts)
-    exp_name = args.env_name + '-' + ts
+    exp_name = args.domain_name + '-' + args.task_name + '-' + ts
     args.work_dir = args.work_dir + '/' + exp_name
     make_dir(args.work_dir)
 
@@ -151,6 +162,7 @@ def main():
         grad_clip=args.grad_clip,
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
+        action_repeat=args.action_repeat,
         controller_type=args.controller_type,
         action_space=env.action_space,
         horizon=args.horizon,

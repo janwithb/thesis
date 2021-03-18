@@ -5,15 +5,15 @@ from gym import spaces
 from gym import ObservationWrapper
 
 
-class PixelObservationWrapper(ObservationWrapper):
+class PixelObservation(ObservationWrapper):
     def __init__(self,
                  env,
-                 crop_center_observation=True,
-                 resize_observation=True,
+                 crop_center_observation=False,
+                 resize_observation=False,
                  observation_size=100,
-                 grayscale_observation=True,
-                 normalize_observation=True):
-        super(PixelObservationWrapper, self).__init__(env)
+                 grayscale_observation=False,
+                 normalize_observation=False):
+        super(PixelObservation, self).__init__(env)
 
         self._env = env
         self._crop_center_observation = crop_center_observation
@@ -23,8 +23,10 @@ class PixelObservationWrapper(ObservationWrapper):
         self._normalize_observation = normalize_observation
 
         # extend observation space with pixels
-        env.reset()
-        pixels = self.preprocess_observation(self.env.render(mode='rgb_array'))
+        pixels = self.preprocess_observation(self.env.render(mode='rgb_array',
+                                                             height=observation_size,
+                                                             width=observation_size,
+                                                             camera_id=0))
         if np.issubdtype(pixels.dtype, np.integer):
             low, high = (0, 255)
         elif np.issubdtype(pixels.dtype, np.float32):
@@ -35,7 +37,10 @@ class PixelObservationWrapper(ObservationWrapper):
         self.observation_space = pixels_space
 
     def observation(self, observation):
-        pixel_observation = self._env.render(mode='rgb_array')
+        pixel_observation = self._env.render(mode='rgb_array',
+                                             height=self._observation_size,
+                                             width=self._observation_size,
+                                             camera_id=0)
         prepocessed_observation = self.preprocess_observation(pixel_observation)
         return prepocessed_observation
 

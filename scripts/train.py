@@ -1,14 +1,16 @@
 import argparse
 import os
 import time
-import gym
 import torch
 
+from dm_control import suite
 from algos.dreamer_value import DreamerValue
-from utils.frame_stack_wrapper import FrameStack
+from wrappers.action_repeat_wrapper import ActionRepeat
+from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
 from utils.misc import make_dir, save_config
-from utils.pixel_observation_wrapper import PixelObservationWrapper
+from wrappers.gym_wrapper import GymWrapper
+from wrappers.pixel_observation_wrapper import PixelObservation
 from utils.sampler import Sampler
 from utils.sequence_replay_buffer import SequenceReplayBuffer
 
@@ -17,8 +19,10 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # environment
-    parser.add_argument('--env_name', default='Pendulum-v0', type=str)
+    parser.add_argument('--domain_name', default='cheetah', type=str)
+    parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--frame_stack', default=1, type=int)
+    parser.add_argument('--action_repeat', default=1, type=int)
     parser.add_argument('--crop_center_observation', default=True, action='store_true')
     parser.add_argument('--resize_observation', default=True, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
@@ -95,11 +99,14 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # create gym environment
-    env = gym.make(args.env_name)
+    # create dm_control env
+    env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+
+    # wrap env to gym env
+    env = GymWrapper(env)
 
     # augment observations by pixel values
-    env = PixelObservationWrapper(
+    env = PixelObservation(
         env,
         crop_center_observation=args.crop_center_observation,
         resize_observation=args.resize_observation,
@@ -110,6 +117,9 @@ def main():
 
     # stack several consecutive frames together
     env = FrameStack(env, args.frame_stack)
+
+    # repeat actions
+    env = ActionRepeat(env, args.action_repeat)
 
     # make work directory
     ts = time.gmtime()
@@ -162,6 +172,7 @@ def main():
         grad_clip=args.grad_clip,
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
+        action_repeat=args.action_repeat,
         value_shape=(1,),
         value_layers=args.value_layers,
         value_hidden=args.value_hidden,

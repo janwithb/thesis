@@ -28,7 +28,7 @@ class Sampler:
                 actions.append(action)
                 rewards.append(reward)
                 if render:
-                    self.env.unwrapped.render()
+                    self.env.render(height=400, width=400, camera_id=0)
                 if self.video_recorder is not None:
                     self.video_recorder.capture_frame()
                 total_steps += 1
@@ -55,7 +55,7 @@ class Sampler:
                 actions.append(action)
                 rewards.append(reward)
                 if render:
-                    self.env.unwrapped.render()
+                    self.env.render(height=400, width=400, camera_id=0)
                 if self.video_recorder is not None:
                     self.video_recorder.capture_frame()
                 total_steps += 1
