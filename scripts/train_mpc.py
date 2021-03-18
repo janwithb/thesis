@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--frame_stack', default=1, type=int)
+    parser.add_argument('--frame_stack', default=3, type=int)
     parser.add_argument('--action_repeat', default=3, type=int)
     parser.add_argument('--crop_center_observation', default=False, action='store_true')
     parser.add_argument('--resize_observation', default=False, action='store_true')
@@ -39,10 +39,8 @@ def parse_args():
     # train
     parser.add_argument('--init_episodes', default=3, type=int)
     parser.add_argument('--init_episode_length', default=100, type=int)
-    parser.add_argument('--policy_episodes', default=5, type=int)
+    parser.add_argument('--policy_episodes', default=1, type=int)
     parser.add_argument('--policy_episode_length', default=100, type=int)
-    parser.add_argument('--random_episodes', default=5, type=int)
-    parser.add_argument('--random_episode_length', default=100, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
     parser.add_argument('--model_iterations', default=2, type=int)
     parser.add_argument('--render_training', default=True, action='store_true')
@@ -50,6 +48,7 @@ def parse_args():
     parser.add_argument('--chunk_size', default=50, type=int)
     parser.add_argument('--discount', default=0.99, type=float)
     parser.add_argument('--discount_lambda', default=0.95, type=float)
+    parser.add_argument('--train_noise', default=0.3, type=float)
     parser.add_argument('--grad_clip', default=100.0, type=float)
 
     # evaluation
@@ -57,7 +56,7 @@ def parse_args():
     parser.add_argument('--eval_episodes', default=5, type=int)
     parser.add_argument('--eval_episode_length', default=100, type=int)
     parser.add_argument('--save_eval_video', default=False, action='store_true')
-    parser.add_argument('--render_eval', default=False, action='store_true')
+    parser.add_argument('--render_eval', default=True, action='store_true')
 
     # transition model
     parser.add_argument('--stochastic_size', default=30, type=int)
@@ -71,7 +70,7 @@ def parse_args():
     parser.add_argument('--reward_hidden', default=300, type=int)
 
     # controller
-    parser.add_argument('--controller_type', default='cem', type=str)
+    parser.add_argument('--controller_type', default='random_shooting', type=str)
     parser.add_argument('--horizon', default=15, type=int)
     parser.add_argument('--num_control_samples', default=30, type=int)
     parser.add_argument('--max_iterations', default=3, type=int)
@@ -163,6 +162,7 @@ def main():
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
         action_repeat=args.action_repeat,
+        train_noise=args.train_noise,
         controller_type=args.controller_type,
         action_space=env.action_space,
         horizon=args.horizon,
@@ -181,8 +181,6 @@ def main():
         init_episode_length=args.init_episode_length,
         policy_episodes=args.policy_episodes,
         policy_episode_length=args.policy_episode_length,
-        random_episodes=args.random_episodes,
-        random_episode_length=args.random_episode_length,
         training_iterations=args.training_iterations,
         model_iterations=args.model_iterations,
         batch_size=args.batch_size,

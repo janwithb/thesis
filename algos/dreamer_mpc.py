@@ -1,6 +1,7 @@
 import os
 import time
 
+import numpy as np
 import torch
 
 from tqdm import tqdm
@@ -28,6 +29,7 @@ class DreamerMPC(DreamerBase):
                  free_nats=3,
                  kl_scale=1,
                  action_repeat=1,
+                 train_noise=0.3,
                  controller_type='random_shooting',
                  action_space=None,
                  horizon=20,
@@ -52,6 +54,9 @@ class DreamerMPC(DreamerBase):
                          free_nats=free_nats,
                          kl_scale=kl_scale,
                          action_repeat=action_repeat)
+
+        self.train_noise = train_noise
+        self.action_shape = action_shape
 
         if controller_type == 'random_shooting':
             self.controller = RandomShooting(
@@ -81,8 +86,6 @@ class DreamerMPC(DreamerBase):
               init_episode_length=100,
               policy_episodes=10,
               policy_episode_length=100,
-              random_episodes=10,
-              random_episode_length=100,
               training_iterations=100,
               model_iterations=100,
               batch_size=64,
@@ -116,22 +119,15 @@ class DreamerMPC(DreamerBase):
                 self.optimize_model(samples)
                 self.model_itr += 1
 
-            # collect new random data
-            rand_episodes, rand_steps = self.sampler.collect_random_episodes(random_episodes, random_episode_length,
-                                                                             render=render_training)
-
             # collect on policy data
-            pol_episodes, pol_steps = self.sampler.collect_policy_episodes(policy_episodes, policy_episode_length,
-                                                                           self.mpc_policy,
-                                                                           self.get_state_representation,
-                                                                           self.device,
-                                                                           render=render_training)
-
-            episodes = rand_episodes + pol_episodes
-            total_steps = (rand_steps + pol_steps) * self.action_repeat
+            episodes, total_steps = self.sampler.collect_policy_episodes(policy_episodes, policy_episode_length,
+                                                                         self.exploration_policy,
+                                                                         self.get_state_representation,
+                                                                         self.device,
+                                                                         render=render_training)
 
             self.replay_buffer.add(episodes)
-            self.step += total_steps
+            self.step += total_steps * self.action_repeat
 
             # save model frequently
             if save_iter_model and it % save_iter_model_freq == 0:
@@ -143,11 +139,16 @@ class DreamerMPC(DreamerBase):
 
             # evaluate policy
             if it % eval_freq == 0:
-                self.evaluate(eval_episodes, eval_episode_length, self.mpc_policy,
+                self.evaluate(eval_episodes, eval_episode_length, self.policy,
                               save_eval_video, video_dir, render_eval)
 
-    def mpc_policy(self, state):
+    def policy(self, state):
         action = self.controller.get_action(state)
+        return action
+
+    def exploration_policy(self, state):
+        action = self.controller.get_action(state)
+        action += np.random.normal(0, np.sqrt(self.train_noise), self.action_shape[0])
         return action
 
     def save_model(self, model_path, model_name):
