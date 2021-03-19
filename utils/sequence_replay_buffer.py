@@ -48,13 +48,13 @@ class SequenceReplayBuffer(object):
     def get_batch(self, n):
         """Get batch of episodes to train on."""
         # random batch
-        idxs = random.sample(xrange(self.cur_size), n)
+        idxs = random.choices(xrange(self.cur_size), k=n)
         return np.array([self.buffer[idx] for idx in idxs])
 
     def get_chunk_batch(self, n, t):
         """Get batch of episodes with length t to train on."""
         # random batch
-        idxs = random.sample(xrange(self.cur_size), n)
+        idxs = random.choices(xrange(self.cur_size), k=n)
         batch = np.array([self.buffer[idx] for idx in idxs])
         for episode in batch:
             start_idx = random.randint(0, len(episode.states) - t)
