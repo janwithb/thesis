@@ -185,9 +185,12 @@ class DreamerBase:
 
         # log results
         eval_time = time.time() - eval_start_time
-        self.logger.log('eval/mean_ep_reward', mean_ep_reward, self.step)
-        self.logger.log('eval/best_ep_reward', best_ep_reward, self.step)
-        self.logger.log('eval/eval_time', eval_time, self.step)
+        with torch.no_grad():
+            self.logger.log('eval/mean_ep_reward', mean_ep_reward, self.step)
+            self.logger.log('eval/best_ep_reward', best_ep_reward, self.step)
+            self.logger.log('eval/eval_time', eval_time, self.step)
+            eval_video = self.get_eval_video(episodes[0])
+            self.logger.log_video('eval/imagination_video', eval_video, self.step)
 
     def get_reconstruction_video(self, observation, image_pred, n_video=2):
         ground_truth = observation[:n_video, :] + 0.5
@@ -207,3 +210,15 @@ class DreamerBase:
         imagined_error = (model - ground_truth + 1) / 2
         imagined_video = torch.cat((ground_truth, model, imagined_error), dim=3)
         return imagined_video
+
+    def get_eval_video(self, episode):
+        observations = torch.as_tensor(np.array(episode.states), device=self.device)
+        observations = torch.unsqueeze(observations, 0)
+        actions = torch.as_tensor(np.array(episode.actions), device=self.device)
+        actions = torch.unsqueeze(actions, 0)
+        prev_state = self.get_state_representation(torch.squeeze(observations[:, 0], 0), None, None)
+        prior = self.rollout.rollout_transition(actions.shape[1], actions, prev_state)
+        imagined = self.observation_decoder(get_feat(prior)).mean + 0.5
+        ground_truth = observations + 0.5
+        video = torch.cat((ground_truth, imagined), dim=0)
+        return video
