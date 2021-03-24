@@ -1,4 +1,3 @@
-import os
 import time
 
 import numpy as np
@@ -150,8 +149,7 @@ class DreamerBase:
         if prev_action is None:
             prev_action = torch.zeros(self.action_size, device=observation.device, dtype=observation.dtype)
         if prev_state is None:
-            prev_state = self.representation.initial_state(1, device=prev_action.device,
-                                                           dtype=prev_action.dtype)
+            prev_state = self.representation.initial_state(1, device=prev_action.device, dtype=prev_action.dtype)
         # reshape variables
         observation = torch.unsqueeze(observation, 0)
         prev_action = torch.unsqueeze(prev_action, 0)
@@ -163,8 +161,7 @@ class DreamerBase:
 
     def evaluate(self, eval_episodes, eval_episode_length, policy, save_eval_video, video_dir, render_eval):
         eval_start_time = time.time()
-        self.training = False
-        self.eval = True
+        self.set_mode('eval')
 
         # record video
         if save_eval_video:
@@ -222,3 +219,13 @@ class DreamerBase:
         ground_truth = observations + 0.5
         video = torch.cat((ground_truth, imagined), dim=0)
         return video
+
+    def set_mode(self, mode):
+        if mode == 'train':
+            self.training = True
+            self.eval = False
+        elif mode == 'eval':
+            self.training = False
+            self.eval = True
+        else:
+            raise ValueError('unknown mode')

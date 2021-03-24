@@ -133,8 +133,7 @@ class DreamerValue(DreamerBase):
         # main training loop
         for it in tqdm(range(training_iterations), desc='Training progress'):
             itr_start_time = time.time()
-            self.training = True
-            self.eval = False
+            self.set_mode('train')
 
             # model training loop
             for _ in tqdm(range(model_iterations), desc='Model Training'):
