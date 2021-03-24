@@ -4,15 +4,16 @@ import time
 import torch
 
 from dm_control import suite
-from algos.dreamer_value import DreamerValue
+
+from algos.dreamer_sac import DreamerSAC
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
-from utils.logger import Logger
-from utils.misc import make_dir, save_config
 from wrappers.gym_wrapper import GymWrapper
 from wrappers.pixel_observation_wrapper import PixelObservation
 from utils.sampler import Sampler
 from utils.sequence_replay_buffer import SequenceReplayBuffer
+from utils.logger import Logger
+from utils.misc import make_dir, save_config
 
 
 def parse_args():
@@ -22,8 +23,8 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--frame_stack', default=1, type=int)
-    parser.add_argument('--action_repeat', default=1, type=int)
+    parser.add_argument('--frame_stack', default=3, type=int)
+    parser.add_argument('--action_repeat', default=3, type=int)
     parser.add_argument('--crop_center_observation', default=True, action='store_true')
     parser.add_argument('--resize_observation', default=True, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
@@ -35,26 +36,24 @@ def parse_args():
     parser.add_argument('--save_buffer', default=True, action='store_true')
     parser.add_argument('--load_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer_dir', default='../output/Pendulum-v0-03-03/buffer/replay_buffer.pkl', type=str)
+    parser.add_argument('--sac_replay_buffer_capacity', default=100000, type=int)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=2, type=int)
     parser.add_argument('--init_episode_length', default=100, type=int)
-    parser.add_argument('--iter_episodes', default=5, type=int)
+    parser.add_argument('--iter_episodes', default=1, type=int)
     parser.add_argument('--iter_episode_length', default=100, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
     parser.add_argument('--model_iterations', default=2, type=int)
+    parser.add_argument('--sac_iterations', default=2, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--chunk_size', default=50, type=int)
+    parser.add_argument('--sac_batch_size', default=64, type=int)
     parser.add_argument('--imagine_horizon', default=15, type=int)
     parser.add_argument('--discount', default=0.99, type=float)
-    parser.add_argument('--discount_lambda', default=0.95, type=float)
-    parser.add_argument('--train_noise', default=0.3, type=float)
-    parser.add_argument('--expl_method', default='additive_gaussian', type=str)
-    parser.add_argument('--expl_amount', default=0.3, type=float)
-    parser.add_argument('--expl_decay', default=0.0, type=float)
-    parser.add_argument('--expl_min', default=0.0, type=float)
     parser.add_argument('--grad_clip', default=100.0, type=float)
+    parser.add_argument('--learnable_temperature', default=True, action='store_true')
 
     # evaluation
     parser.add_argument('--eval_freq', default=1, type=int)
@@ -76,15 +75,29 @@ def parse_args():
     parser.add_argument('--reward_hidden', default=300, type=int)
 
     # actor model
-    parser.add_argument('--actor_lr', default=8e-5, type=float)
-    parser.add_argument('--actor_layers', default=3, type=int)
-    parser.add_argument('--actor_hidden', default=200, type=int)
-    parser.add_argument('--actor_dist', default='tanh_normal', type=str)
+    parser.add_argument('--actor_layers', default=2, type=int)
+    parser.add_argument('--actor_hidden', default=1024, type=int)
+    parser.add_argument('--actor_lr', default=1e-4, type=float)
+    parser.add_argument('--actor_beta_1', default=0.9, type=float)
+    parser.add_argument('--actor_beta_2', default=0.999, type=float)
+    parser.add_argument('--actor_update_frequency', default=1, type=int)
+    parser.add_argument('--log_bound', default=-5, type=int)
+    parser.add_argument('--std_bound', default=2, type=int)
 
-    # value model
-    parser.add_argument('--value_lr', default=8e-5, type=float)
-    parser.add_argument('--value_layers', default=3, type=int)
-    parser.add_argument('--value_hidden', default=200, type=int)
+    # critic model
+    parser.add_argument('--critic_tau', default=0.99, type=float)
+    parser.add_argument('--critic_layers', default=2, type=int)
+    parser.add_argument('--critic_hidden', default=1024, type=int)
+    parser.add_argument('--critic_lr', default=1e-4, type=float)
+    parser.add_argument('--critic_beta_1', default=0.9, type=float)
+    parser.add_argument('--critic_beta_2', default=0.999, type=float)
+    parser.add_argument('--critic_target_update_frequency', default=2, type=int)
+
+    # log alpha model
+    parser.add_argument('--init_temperature', default=0.1, type=float)
+    parser.add_argument('--alpha_lr', default=1e-4, type=float)
+    parser.add_argument('--alpha_beta_1', default=0.9, type=float)
+    parser.add_argument('--alpha_beta_2', default=0.999, type=float)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)
@@ -99,6 +112,9 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # gpu settings
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # create dm_control env
     env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
@@ -150,15 +166,18 @@ def main():
     if args.load_buffer:
         replay_buffer.load(args.load_buffer_dir)
 
-    # gpu settings
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    critic_betas = [args.critic_beta_1, args.critic_beta_2]
+    actor_betas = [args.actor_beta_1, args.actor_beta_2]
+    alpha_betas = [args.alpha_beta_1, args.alpha_beta_2]
+    log_std_bounds = [args.log_bound, args.std_bound]
 
     # algorithm
-    dreamer = DreamerValue(
+    dreamer = DreamerSAC(
         logger,
         sampler,
         replay_buffer,
         device=device,
+        action_space=env.action_space,
         tensorboard_log_freq=args.model_iterations,
         image_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
@@ -168,27 +187,29 @@ def main():
         reward_layers=args.reward_layers,
         reward_hidden=args.reward_hidden,
         model_lr=args.model_lr,
-        actor_lr=args.actor_lr,
-        value_lr=args.value_lr,
         grad_clip=args.grad_clip,
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
         action_repeat=args.action_repeat,
-        value_shape=(1,),
-        value_layers=args.value_layers,
-        value_hidden=args.value_hidden,
-        actor_layers=args.actor_layers,
-        actor_hidden=args.actor_hidden,
-        actor_dist=args.actor_dist,
-        imagine_horizon=args.imagine_horizon,
+        sac_replay_buffer_capacity=args.sac_replay_buffer_capacity,
         discount=args.discount,
-        discount_lambda=args.discount_lambda,
-        train_noise=args.train_noise,
-        eval_noise=args.eval_noise,
-        expl_method=args.expl_method,
-        expl_amount=args.expl_amount,
-        expl_decay=args.expl_decay,
-        expl_min=args.expl_min
+        imagine_horizon=args.imagine_horizon,
+        learnable_temperature=args.learnable_temperature,
+        critic_tau=args.critic_tau,
+        critic_hidden=args.critic_hidden,
+        critic_layers=args.critic_layers,
+        critic_lr=args.critic_lr,
+        critic_betas=critic_betas,
+        critic_target_update_frequency=args.critic_target_update_frequency,
+        actor_update_frequency=args.actor_update_frequency,
+        actor_hidden=args.actor_hidden,
+        actor_layers=args.actor_layers,
+        actor_lr=args.actor_lr,
+        actor_betas=actor_betas,
+        log_std_bounds=log_std_bounds,
+        init_temperature=args.init_temperature,
+        alpha_lr=args.alpha_lr,
+        alpha_betas=alpha_betas
     )
 
     # load model
@@ -203,8 +224,10 @@ def main():
         iter_episode_length=args.iter_episode_length,
         training_iterations=args.training_iterations,
         model_iterations=args.model_iterations,
+        sac_iterations=args.sac_iterations,
         batch_size=args.batch_size,
         chunk_size=args.chunk_size,
+        sac_batch_size=args.sac_batch_size,
         render_training=args.render_training,
         save_iter_model=args.save_iter_model,
         save_iter_model_freq=args.save_iter_model_freq,
