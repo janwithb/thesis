@@ -15,6 +15,8 @@ from utils.sequence_replay_buffer import SequenceReplayBuffer
 from utils.logger import Logger
 from utils.misc import make_dir, save_config
 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -69,6 +71,8 @@ def parse_args():
     parser.add_argument('--model_lr', default=6e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
+    parser.add_argument('--representation_loss', default='reconstruction', type=str)
+    parser.add_argument('--random_crop_size', default=64, type=int)
 
     # reward model
     parser.add_argument('--reward_layers', default=3, type=int)
@@ -81,8 +85,8 @@ def parse_args():
     parser.add_argument('--actor_beta_1', default=0.9, type=float)
     parser.add_argument('--actor_beta_2', default=0.999, type=float)
     parser.add_argument('--actor_update_frequency', default=1, type=int)
-    parser.add_argument('--log_bound', default=-5, type=int)
-    parser.add_argument('--std_bound', default=2, type=int)
+    parser.add_argument('--log_std_min', default=-5, type=int)
+    parser.add_argument('--log_std_max', default=2, type=int)
 
     # critic model
     parser.add_argument('--critic_tau', default=0.99, type=float)
@@ -156,7 +160,7 @@ def main():
     save_config(config_dir, args)
 
     # initialize logger
-    logger = Logger(tensorboard_dir, tensorboard_log=args.tensorboard_log)
+    logger = Logger(tensorboard_dir)
 
     # initialize sampler
     sampler = Sampler(env)
@@ -169,7 +173,7 @@ def main():
     critic_betas = [args.critic_beta_1, args.critic_beta_2]
     actor_betas = [args.actor_beta_1, args.actor_beta_2]
     alpha_betas = [args.alpha_beta_1, args.alpha_beta_2]
-    log_std_bounds = [args.log_bound, args.std_bound]
+    log_std_bounds = [args.log_std_min, args.log_std_max]
 
     # algorithm
     dreamer = DreamerSAC(
@@ -191,6 +195,8 @@ def main():
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
         action_repeat=args.action_repeat,
+        representation_loss=args.representation_loss,
+        random_crop_size=args.random_crop_size,
         sac_replay_buffer_capacity=args.sac_replay_buffer_capacity,
         discount=args.discount,
         imagine_horizon=args.imagine_horizon,

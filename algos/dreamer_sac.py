@@ -34,6 +34,8 @@ class DreamerSAC(DreamerBase):
                  free_nats=3,
                  kl_scale=1,
                  action_repeat=1,
+                 representation_loss='contrastive',
+                 random_crop_size=64,
                  sac_replay_buffer_capacity=100000,
                  discount=0.99,
                  imagine_horizon=15,
@@ -70,7 +72,9 @@ class DreamerSAC(DreamerBase):
                          grad_clip=grad_clip,
                          free_nats=free_nats,
                          kl_scale=kl_scale,
-                         action_repeat=action_repeat)
+                         action_repeat=action_repeat,
+                         representation_loss=representation_loss,
+                         random_crop_size=random_crop_size)
 
         self.sac_replay_buffer = ReplayBuffer(
             self.feature_size,
@@ -258,7 +262,8 @@ class DreamerSAC(DreamerBase):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        #self.critic.log(logger, step)
+        if self.sac_itr % self.tensorboard_log_freq == 0:
+            self.critic.log(self.logger, self.step)
 
     def optimize_actor(self, obs):
         # compute critic loss
@@ -269,7 +274,8 @@ class DreamerSAC(DreamerBase):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        #self.actor.log(logger, step)
+        if self.sac_itr % self.tensorboard_log_freq == 0:
+            self.actor.log(self.logger, self.step)
         return log_prob
 
     def optimize_alpha(self, log_prob):
@@ -297,7 +303,8 @@ class DreamerSAC(DreamerBase):
             current_Q2, target_Q)
 
         # log losses
-        self.logger.log('train_critic/loss', critic_loss, self.step)
+        if self.sac_itr % self.tensorboard_log_freq == 0:
+            self.logger.log('train_critic/loss', critic_loss, self.step)
         return critic_loss
 
     def actor_loss(self, obs):
@@ -310,17 +317,19 @@ class DreamerSAC(DreamerBase):
         actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
 
         # log losses
-        self.logger.log('train_actor/loss', actor_loss, self.step)
-        self.logger.log('train_actor/target_entropy', self.target_entropy, self.step)
-        self.logger.log('train_actor/entropy', -log_prob.mean(), self.step)
+        if self.sac_itr % self.tensorboard_log_freq == 0:
+            self.logger.log('train_actor/loss', actor_loss, self.step)
+            self.logger.log('train_actor/target_entropy', self.target_entropy, self.step)
+            self.logger.log('train_actor/entropy', -log_prob.mean(), self.step)
         return actor_loss, log_prob
 
     def alpha_loss(self, log_prob):
         alpha_loss = (self.alpha * (-log_prob - self.target_entropy).detach()).mean()
 
         # log losses
-        self.logger.log('train_alpha/loss', alpha_loss, self.step)
-        self.logger.log('train_alpha/value', self.alpha, self.step)
+        if self.sac_itr % self.tensorboard_log_freq == 0:
+            self.logger.log('train_alpha/loss', alpha_loss, self.step)
+            self.logger.log('train_alpha/value', self.alpha, self.step)
         return alpha_loss
 
     def policy(self, state, sample=False):

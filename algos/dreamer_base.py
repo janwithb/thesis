@@ -1,13 +1,14 @@
 import time
 
 import numpy as np
+import torch.nn as nn
 import torch
 
 from models.decoder import ObservationDecoder
 from models.dense import DenseModel
 from models.encoder import ObservationEncoder
 from models.rssm import RSSMTransition, RSSMRepresentation, RSSMRollout, get_feat, get_dist, RSSMState, get_state
-from utils.misc import get_parameters, infer_leading_dims
+from utils.misc import get_parameters, infer_leading_dims, random_crop, compute_logits
 
 
 class DreamerBase:
@@ -28,7 +29,9 @@ class DreamerBase:
                  grad_clip=100.0,
                  free_nats=3,
                  kl_scale=1,
-                 action_repeat=1):
+                 action_repeat=1,
+                 representation_loss='contrastive',
+                 random_crop_size=64):
         super().__init__()
 
         self.logger = logger
@@ -40,6 +43,8 @@ class DreamerBase:
         self.free_nats = free_nats
         self.kl_scale = kl_scale
         self.action_repeat = action_repeat
+        self.representation_loss = representation_loss
+        self.random_crop_size = random_crop_size
         self.training = True
         self.eval = False
         self.itr = 1
@@ -47,7 +52,11 @@ class DreamerBase:
         self.step = 0
 
         # encoder model
-        self.observation_encoder = ObservationEncoder(shape=image_shape)
+        if representation_loss == 'reconstruction':
+            self.observation_encoder = ObservationEncoder(shape=image_shape)
+        elif self.representation_loss == 'contrastive':
+            random_crop_shape = (image_shape[0], random_crop_size, random_crop_size)
+            self.observation_encoder = ObservationEncoder(shape=random_crop_shape)
         encoder_embed_size = self.observation_encoder.embed_size
         decoder_embed_size = stochastic_size + deterministic_size
 
@@ -62,21 +71,21 @@ class DreamerBase:
 
         # reward model
         self.feature_size = stochastic_size + deterministic_size
-        self.reward_model = DenseModel(self.feature_size, reward_shape, reward_layers, reward_hidden)
+        self.reward_model = DenseModel(self.feature_size, reward_shape, reward_layers, reward_hidden, 'reward')
 
         # bundle models
         self.model_modules = [self.observation_encoder,
-                              self.observation_decoder,
                               self.reward_model,
-                              self.transition,
                               self.representation]
+        if representation_loss == 'reconstruction':
+            self.model_modules.append(self.observation_decoder)
 
         # gpu settings
         self.observation_encoder.to(self.device)
         self.observation_decoder.to(self.device)
         self.reward_model.to(self.device)
-        self.transition.to(self.device)
         self.representation.to(self.device)
+        self.rollout.to(self.device)
 
         # model optimizer
         self.model_optimizer = torch.optim.Adam(
@@ -93,29 +102,69 @@ class DreamerBase:
         model_loss.backward()
         torch.nn.utils.clip_grad_norm_(get_parameters(self.model_modules), self.grad_clip)
         self.model_optimizer.step()
+
+        if self.model_itr % self.tensorboard_log_freq == 0:
+            self.observation_encoder.log(self.logger, self.step)
+            self.observation_decoder.log(self.logger, self.step)
+            self.reward_model.log(self.logger, self.step)
+            self.transition.log(self.logger, self.step)
+            self.representation.log(self.logger, self.step)
         return post
 
     def model_loss(self, samples):
-        # convert samples to tensors
-        observation = torch.as_tensor(np.array([chunk.states for chunk in samples]), device=self.device)
-        action = torch.as_tensor(np.array([chunk.actions for chunk in samples]), device=self.device)
-        reward = torch.as_tensor(np.array([chunk.rewards for chunk in samples]), device=self.device)
-        reward = reward.unsqueeze(2)
+        if self.representation_loss == 'reconstruction':
+            # convert samples to tensors
+            observation = torch.as_tensor(np.array([chunk.states for chunk in samples]), device=self.device)
+            action = torch.as_tensor(np.array([chunk.actions for chunk in samples]), device=self.device)
+            reward = torch.as_tensor(np.array([chunk.rewards for chunk in samples]), device=self.device)
+            reward = reward.unsqueeze(2)
 
-        # get dimensions
-        lead_dim, batch_t, batch_b, img_shape = infer_leading_dims(observation, 3)
+            # get dimensions
+            lead_dim, batch_t, batch_b, img_shape = infer_leading_dims(observation, 3)
 
-        # encode observations
-        embed = self.observation_encoder(observation)
+            # encode observations
+            embed = self.observation_encoder(observation)
 
-        # rollout model with sample actions
-        prev_state = self.representation.initial_state(batch_b, device=action.device, dtype=action.dtype)
-        prior, post = self.rollout.rollout_representation(batch_t, embed, action, prev_state)
-        feat = get_feat(post)
+            # rollout model with sample actions
+            prev_state = self.representation.initial_state(batch_b, device=action.device, dtype=action.dtype)
+            prior, post = self.rollout.rollout_representation(batch_t, embed, action, prev_state)
+            feat = get_feat(post)
 
-        # reconstruction loss
-        image_pred = self.observation_decoder(feat)
-        image_loss = -torch.mean(image_pred.log_prob(observation))
+            # reconstruction loss
+            image_pred = self.observation_decoder(feat)
+            image_loss = -torch.mean(image_pred.log_prob(observation))
+        elif self.representation_loss == 'contrastive':
+            obs_anchor = np.array([chunk.states for chunk in samples])
+            obs_pos = np.array([chunk.states for chunk in samples])
+            obs_anchor = random_crop(obs_anchor, self.random_crop_size)
+            obs_pos = random_crop(obs_pos, self.random_crop_size)
+
+            obs_anchor = torch.as_tensor(obs_anchor, device=self.device)
+            obs_pos = torch.as_tensor(obs_pos, device=self.device)
+            action = torch.as_tensor(np.array([chunk.actions for chunk in samples]), device=self.device)
+            reward = torch.as_tensor(np.array([chunk.rewards for chunk in samples]), device=self.device)
+            reward = reward.unsqueeze(2)
+
+            embed_anchor = self.observation_encoder(obs_anchor)
+            embed_pos = self.observation_encoder(obs_pos)
+
+            # get dimensions
+            lead_dim, batch_t, batch_b, img_shape = infer_leading_dims(obs_anchor, 3)
+
+            # rollout model with sample actions
+            prev_state_anchor = self.representation.initial_state(batch_b, device=action.device, dtype=action.dtype)
+            prev_state_pos = self.representation.initial_state(batch_b, device=action.device, dtype=action.dtype)
+            prior, post = self.rollout.rollout_representation(batch_t, embed_anchor, action, prev_state_anchor)
+            prior_pos, post_pos = self.rollout.rollout_representation(batch_t, embed_pos, action, prev_state_pos)
+            feat = get_feat(post)
+            feat_pos = get_feat(post_pos)
+
+            logits = compute_logits(feat, feat_pos, feat.shape[2])
+            labels = torch.arange(logits.shape[0]).long().to(self.device)
+            cross_entropy_loss = nn.CrossEntropyLoss()
+            image_loss = cross_entropy_loss(logits, labels)
+        else:
+            raise ValueError('unknown representation_loss')
 
         # reward loss
         reward_pred = self.reward_model(feat)
@@ -137,10 +186,11 @@ class DreamerBase:
                 self.logger.log('train_model/reward_loss', reward_loss, self.step)
                 self.logger.log('train_model/transition_loss', div, self.step)
                 self.logger.log('train_model/model_loss', model_loss, self.step)
-                reconstruction_video = self.get_reconstruction_video(observation, image_pred)
-                imagination_video = self.get_imagination_video(observation, image_pred, action, post)
-                self.logger.log_video('train_model/reconstruction_video', reconstruction_video, self.step)
-                self.logger.log_video('train_model/imagination_video', imagination_video, self.step)
+                if self.representation_loss == 'reconstruction':
+                    reconstruction_video = self.get_reconstruction_video(observation, image_pred)
+                    imagination_video = self.get_imagination_video(observation, image_pred, action, post)
+                    self.logger.log_video('train_model/reconstruction_video', reconstruction_video, self.step)
+                    self.logger.log_video('train_model/imagination_video', imagination_video, self.step)
         return model_loss, post
 
     def get_state_representation(self, observation: torch.Tensor, prev_action: torch.Tensor = None,
@@ -153,6 +203,12 @@ class DreamerBase:
         # reshape variables
         observation = torch.unsqueeze(observation, 0)
         prev_action = torch.unsqueeze(prev_action, 0)
+
+        if self.representation_loss == 'contrastive':
+            observation = torch.unsqueeze(observation, 0)
+            observation = random_crop(observation.detach().cpu().numpy(), self.random_crop_size)
+            observation = torch.as_tensor(observation, device=self.device)
+            observation = torch.squeeze(observation, 0)
 
         # encode observations
         obs_embed = self.observation_encoder(observation)
@@ -211,13 +267,16 @@ class DreamerBase:
     def get_eval_video(self, episode):
         observations = torch.as_tensor(np.array(episode.states), device=self.device)
         observations = torch.unsqueeze(observations, 0)
-        actions = torch.as_tensor(np.array(episode.actions), device=self.device)
-        actions = torch.unsqueeze(actions, 0)
-        prev_state = self.get_state_representation(torch.squeeze(observations[:, 0], 0), None, None)
-        prior = self.rollout.rollout_transition(actions.shape[1], actions, prev_state)
-        imagined = self.observation_decoder(get_feat(prior)).mean + 0.5
         ground_truth = observations + 0.5
-        video = torch.cat((ground_truth, imagined), dim=0)
+        if self.representation_loss == 'reconstruction':
+            actions = torch.as_tensor(np.array(episode.actions), device=self.device)
+            actions = torch.unsqueeze(actions, 0)
+            prev_state = self.get_state_representation(torch.squeeze(observations[:, 0], 0), None, None)
+            prior = self.rollout.rollout_transition(actions.shape[1], actions, prev_state)
+            imagined = self.observation_decoder(get_feat(prior)).mean + 0.5
+            video = torch.cat((ground_truth, imagined), dim=0)
+        elif self.representation_loss == 'contrastive':
+            video = ground_truth
         return video
 
     def set_mode(self, mode):

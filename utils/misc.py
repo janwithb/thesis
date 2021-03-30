@@ -4,12 +4,11 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as fu
 
 from typing import Iterable
 from torch.nn import Module
-
 from models.rssm import RSSMState
+from skimage.util.shape import view_as_windows
 
 
 def make_dir(dir_path):
@@ -29,7 +28,8 @@ def weight_init(m):
     """Custom weight init for Conv2D and Linear layers."""
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight.data)
-        m.bias.data.fill_(0.0)
+        if hasattr(m.bias, 'data'):
+            m.bias.data.fill_(0.0)
     elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
         assert m.weight.size(2) == m.weight.size(3)
         m.weight.data.fill_(0.0)
@@ -37,30 +37,6 @@ def weight_init(m):
         mid = m.weight.size(2) // 2
         gain = nn.init.calculate_gain('relu')
         nn.init.orthogonal_(m.weight.data[:, :, mid, mid], gain)
-
-
-def gaussian_logprob(noise, log_std):
-    """Compute Gaussian log probability."""
-    residual = (-0.5 * noise.pow(2) - log_std).sum(-1, keepdim=True)
-    return residual - 0.5 * np.log(2 * np.pi) * noise.size(-1)
-
-
-def squash(mu, pi, log_pi):
-    """Apply squashing function.
-    See appendix C from https://arxiv.org/pdf/1812.05905.pdf.
-    """
-    mu = torch.tanh(mu)
-    if pi is not None:
-        pi = torch.tanh(pi)
-    if log_pi is not None:
-        log_pi -= torch.log(fu.relu(1 - pi.pow(2)) + 1e-6).sum(-1, keepdim=True)
-    return mu, pi, log_pi
-
-
-def tie_weights(src, trg):
-    assert type(src) == type(trg)
-    trg.weight = src.weight
-    trg.bias = src.bias
 
 
 def get_parameters(modules: Iterable[Module]):
@@ -194,14 +170,36 @@ def mlp(input_dim, hidden_dim, output_dim, hidden_depth, output_mod=None):
     return trunk
 
 
-def weight_init(m):
-    """Custom weight init for Conv2D and Linear layers."""
-    if isinstance(m, nn.Linear):
-        nn.init.orthogonal_(m.weight.data)
-        if hasattr(m.bias, 'data'):
-            m.bias.data.fill_(0.0)
-
-
 def soft_update_params(net, target_net, tau):
     for param, target_param in zip(net.parameters(), target_net.parameters()):
         target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+
+def random_crop(imgs, output_size):
+    n = imgs.shape[:2]
+    batch_size = np.prod(n)
+    imgs = np.reshape(imgs, (batch_size,) + imgs.shape[2:])
+    img_size = imgs.shape[-1]
+    crop_max = img_size - output_size
+    w1 = np.random.randint(0, crop_max, batch_size)
+    h1 = np.random.randint(0, crop_max, batch_size)
+
+    # creates all sliding windows combinations of size (output_size)
+    windows = view_as_windows(imgs, (1, 1, output_size, output_size))[..., 0, 0, :, :]
+
+    # selects a random window for each batch element
+    cropped_imgs = windows[np.arange(batch_size), :, w1, h1]
+    cropped_imgs = np.reshape(cropped_imgs, n + cropped_imgs.shape[1:])
+    return cropped_imgs
+
+
+def compute_logits(z_a, z_pos, z_dim):
+    n = z_a.shape[:2]
+    batch_size = np.prod(n)
+    z_a = torch.reshape(z_a, (batch_size,) + z_a.shape[2:])
+    z_pos = torch.reshape(z_pos, (batch_size,) + z_pos.shape[2:])
+    W = nn.Parameter(torch.rand(z_dim, z_dim))
+    Wz = torch.matmul(W, z_pos.T)  # (z_dim,B)
+    logits = torch.matmul(z_a, Wz)  # (B,B)
+    logits = logits - torch.max(logits, 1)[0][:, None]
+    return logits

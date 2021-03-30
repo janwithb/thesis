@@ -29,6 +29,8 @@ class DreamerMPC(DreamerBase):
                  free_nats=3,
                  kl_scale=1,
                  action_repeat=1,
+                 representation_loss='contrastive',
+                 random_crop_size=64,
                  train_noise=0.3,
                  controller_type='random_shooting',
                  action_space=None,
@@ -53,7 +55,9 @@ class DreamerMPC(DreamerBase):
                          grad_clip=grad_clip,
                          free_nats=free_nats,
                          kl_scale=kl_scale,
-                         action_repeat=action_repeat)
+                         action_repeat=action_repeat,
+                         representation_loss=representation_loss,
+                         random_crop_size=random_crop_size)
 
         self.train_noise = train_noise
         self.action_shape = action_shape

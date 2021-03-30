@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument('--action_repeat', default=3, type=int)
     parser.add_argument('--crop_center_observation', default=True, action='store_true')
     parser.add_argument('--resize_observation', default=True, action='store_true')
-    parser.add_argument('--observation_size', default=64, type=int)
+    parser.add_argument('--observation_size', default=100, type=int)
     parser.add_argument('--grayscale_observation', default=False, action='store_true')
     parser.add_argument('--normalize_observation', default=True, action='store_true')
 
@@ -37,9 +37,9 @@ def parse_args():
     parser.add_argument('--load_buffer_dir', default='../output/Pendulum-v0-03-03/buffer/replay_buffer.pkl', type=str)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=2, type=int)
     parser.add_argument('--init_episode_length', default=100, type=int)
-    parser.add_argument('--iter_episodes', default=5, type=int)
+    parser.add_argument('--iter_episodes', default=1, type=int)
     parser.add_argument('--iter_episode_length', default=100, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
     parser.add_argument('--model_iterations', default=2, type=int)
@@ -58,7 +58,7 @@ def parse_args():
 
     # evaluation
     parser.add_argument('--eval_freq', default=1, type=int)
-    parser.add_argument('--eval_episodes', default=5, type=int)
+    parser.add_argument('--eval_episodes', default=1, type=int)
     parser.add_argument('--eval_episode_length', default=100, type=int)
     parser.add_argument('--save_eval_video', default=False, action='store_true')
     parser.add_argument('--render_eval', default=False, action='store_true')
@@ -70,6 +70,8 @@ def parse_args():
     parser.add_argument('--model_lr', default=6e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
+    parser.add_argument('--representation_loss', default='contrastive', type=str)
+    parser.add_argument('--random_crop_size', default=64, type=int)
 
     # reward model
     parser.add_argument('--reward_layers', default=3, type=int)
@@ -140,7 +142,7 @@ def main():
     save_config(config_dir, args)
 
     # initialize logger
-    logger = Logger(tensorboard_dir, tensorboard_log=args.tensorboard_log)
+    logger = Logger(tensorboard_dir)
 
     # initialize sampler
     sampler = Sampler(env)
@@ -174,6 +176,8 @@ def main():
         free_nats=args.free_nats,
         kl_scale=args.kl_scale,
         action_repeat=args.action_repeat,
+        representation_loss=args.representation_loss,
+        random_crop_size=args.random_crop_size,
         value_shape=(1,),
         value_layers=args.value_layers,
         value_hidden=args.value_hidden,

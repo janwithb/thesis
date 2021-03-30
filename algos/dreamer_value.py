@@ -9,7 +9,10 @@ from algos.dreamer_base import DreamerBase
 from models.actor import ActorModel
 from models.dense import DenseModel
 from models.rssm import get_feat, RSSMState
+from models.sac_actor import DiagGaussianActor
 from utils.misc import get_parameters, FreezeParameters, compute_return, flatten_rssm_state
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 
 class DreamerValue(DreamerBase):
@@ -33,6 +36,8 @@ class DreamerValue(DreamerBase):
                  free_nats=3,
                  kl_scale=1,
                  action_repeat=1,
+                 representation_loss='contrastive',
+                 random_crop_size=64,
                  value_shape=None,
                  value_layers=3,
                  value_hidden=200,
@@ -65,7 +70,9 @@ class DreamerValue(DreamerBase):
                          grad_clip=grad_clip,
                          free_nats=free_nats,
                          kl_scale=kl_scale,
-                         action_repeat=action_repeat)
+                         action_repeat=action_repeat,
+                         representation_loss=representation_loss,
+                         random_crop_size=random_crop_size)
 
         self.imagine_horizon = imagine_horizon
         self.discount = discount
@@ -79,10 +86,18 @@ class DreamerValue(DreamerBase):
         self.expl_min = expl_min
 
         # actor model
-        self.actor_model = ActorModel(self.action_size, self.feature_size, actor_hidden, actor_layers, actor_dist)
+        #self.actor_model = ActorModel(self.action_size, self.feature_size, actor_hidden, actor_layers, actor_dist)
+        log_std_bounds = [-5, 2]
+        self.actor_model = DiagGaussianActor(
+            self.feature_size,
+            self.action_size,
+            actor_hidden,
+            actor_layers,
+            log_std_bounds
+        )
 
         # value model
-        self.value_model = DenseModel(self.feature_size, value_shape, value_layers, value_hidden)
+        self.value_model = DenseModel(self.feature_size, value_shape, value_layers, value_hidden, 'value')
 
         # bundle models
         self.actor_modules = [self.actor_model]
@@ -178,6 +193,9 @@ class DreamerValue(DreamerBase):
         actor_loss.backward()
         torch.nn.utils.clip_grad_norm_(get_parameters(self.actor_modules), self.grad_clip)
         self.actor_optimizer.step()
+
+        if self.model_itr % self.tensorboard_log_freq == 0:
+            self.actor_model.log(self.logger, self.step)
         return imag_feat, discount, returns
 
     def optimize_value(self, imag_feat, discount, returns):
@@ -189,6 +207,9 @@ class DreamerValue(DreamerBase):
         value_loss.backward()
         torch.nn.utils.clip_grad_norm_(get_parameters(self.value_modules), self.grad_clip)
         self.value_optimizer.step()
+
+        if self.model_itr % self.tensorboard_log_freq == 0:
+            self.value_model.log(self.logger, self.step)
 
     def actor_loss(self, post):
         # remove gradients from previously calculated tensors
@@ -244,10 +265,10 @@ class DreamerValue(DreamerBase):
             if self.training:
                 action = action_dist.rsample()
             else:
-                action = action_dist.mode()
+                #action = action_dist.mode()
+                action = action_dist.mean
         elif self.actor_dist == 'one_hot':
             action = action_dist.sample()
-            # this doesn't change the value, but gives us straight-through gradients
             action = action + action_dist.probs - action_dist.probs.detach()
         elif self.actor_dist == 'relaxed_one_hot':
             action = action_dist.rsample()
@@ -278,7 +299,7 @@ class DreamerValue(DreamerBase):
         if self.expl_method == 'additive_gaussian':
             noise = torch.randn(*action.shape, device=action.device) * expl_amount
             return torch.clamp(action + noise, -1, 1)
-        if self.expl_method == 'completely_random':  # For continuous actions
+        if self.expl_method == 'completely_random':
             if expl_amount == 0:
                 return action
             else:
