@@ -56,7 +56,7 @@ class ObservationDecoder(nn.Module):
         self._outputs['dc2'] = hidden
         hidden = self._activation(self.dc3(hidden))
         self._outputs['dc3'] = hidden
-        hidden = self._activation(self.dc4(hidden))
+        hidden = self.dc4(hidden)
         self._outputs['dc4'] = hidden
         mean = torch.reshape(hidden, (*batch_shape, *self._shape))
         obs_dist = td.Independent(td.Normal(mean, 1), len(self._shape))
@@ -65,7 +65,7 @@ class ObservationDecoder(nn.Module):
     def log(self, logger, step):
         for k, v in self._outputs.items():
             logger.log_histogram('train_decoder/%s_hist' % k, v, step)
-            if len(v.shape) > 3 and k is not 'linear':
+            if len(v.shape) > 3 and k != 'linear':
                 logger.log_image('train_decoder/%s_img' % k, v[0], step)
 
         logger.log_param('train_decoder/linear', self.linear, step)
