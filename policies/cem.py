@@ -7,7 +7,6 @@ from utils.misc import flatten_rssm_state
 
 
 class CEM(object):
-
     def __init__(self,
                  device,
                  action_space,

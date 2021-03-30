@@ -10,13 +10,10 @@ class ObservationDecoder(nn.Module):
     def __init__(self,
                  depth=32,
                  stride=2,
-                 activation=nn.ReLU,
                  embed_size=1024,
-                 shape=(3, 64, 64)):
+                 shape=(3, 64, 64),
+                 activation=nn.ReLU()):
         super().__init__()
-
-        self.depth = depth
-        self.shape = shape
 
         c, h, w = shape
         conv1_kernel_size = 6
@@ -35,28 +32,44 @@ class ObservationDecoder(nn.Module):
 
         self.conv_shape = (32 * depth, *conv4_shape)
         self.linear = nn.Linear(embed_size, 32 * depth * np.prod(conv4_shape).item())
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(32 * depth, 4 * depth, conv4_kernel_size, stride, output_padding=conv4_pad),
-            activation(),
-            nn.ConvTranspose2d(4 * depth, 2 * depth, conv3_kernel_size, stride, output_padding=conv3_pad),
-            activation(),
-            nn.ConvTranspose2d(2 * depth, 1 * depth, conv2_kernel_size, stride, output_padding=conv2_pad),
-            activation(),
-            nn.ConvTranspose2d(1 * depth, shape[0], conv1_kernel_size, stride, output_padding=conv1_pad),
-        )
+        self.dc1 = nn.ConvTranspose2d(32 * depth, 4 * depth, conv4_kernel_size, stride, output_padding=conv4_pad)
+        self.dc2 = nn.ConvTranspose2d(4 * depth, 2 * depth, conv3_kernel_size, stride, output_padding=conv3_pad)
+        self.dc3 = nn.ConvTranspose2d(2 * depth, 1 * depth, conv2_kernel_size, stride, output_padding=conv2_pad)
+        self.dc4 = nn.ConvTranspose2d(1 * depth, shape[0], conv1_kernel_size, stride, output_padding=conv1_pad)
+
+        self._shape = shape
+        self._activation = activation
+        self._outputs = dict()
 
     def forward(self, x):
-        """
-        :param x: size(*batch_shape, embed_size)
-        :return: obs_dist = size(*batch_shape, *self.shape)
-        """
         batch_shape = x.shape[:-1]
         embed_size = x.shape[-1]
         squeezed_size = np.prod(batch_shape).item()
         x = x.reshape(squeezed_size, embed_size)
-        x = self.linear(x)
-        x = torch.reshape(x, (squeezed_size, *self.conv_shape))
-        x = self.decoder(x)
-        mean = torch.reshape(x, (*batch_shape, *self.shape))
-        obs_dist = td.Independent(td.Normal(mean, 1), len(self.shape))
+        self._outputs['embed'] = x
+        hidden = self.linear(x)
+        hidden = torch.reshape(hidden, (squeezed_size, *self.conv_shape))
+        self._outputs['linear'] = hidden
+        hidden = self._activation(self.dc1(hidden))
+        self._outputs['dc1'] = hidden
+        hidden = self._activation(self.dc2(hidden))
+        self._outputs['dc2'] = hidden
+        hidden = self._activation(self.dc3(hidden))
+        self._outputs['dc3'] = hidden
+        hidden = self._activation(self.dc4(hidden))
+        self._outputs['dc4'] = hidden
+        mean = torch.reshape(hidden, (*batch_shape, *self._shape))
+        obs_dist = td.Independent(td.Normal(mean, 1), len(self._shape))
         return obs_dist
+
+    def log(self, logger, step):
+        for k, v in self._outputs.items():
+            logger.log_histogram('train_decoder/%s_hist' % k, v, step)
+            if len(v.shape) > 3 and k is not 'linear':
+                logger.log_image('train_decoder/%s_img' % k, v[0], step)
+
+        logger.log_param('train_decoder/linear', self.linear, step)
+        logger.log_param('train_decoder/dc1', self.dc1, step)
+        logger.log_param('train_decoder/dc2', self.dc2, step)
+        logger.log_param('train_decoder/dc3', self.dc3, step)
+        logger.log_param('train_decoder/dc4', self.dc4, step)

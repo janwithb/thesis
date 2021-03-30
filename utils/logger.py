@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class Logger:
-    def __init__(self, log_dir, tensorboard_log=True):
+    def __init__(self, log_dir):
         self._sw = SummaryWriter(log_dir)
 
     def _try_sw_log(self, key, value, step):

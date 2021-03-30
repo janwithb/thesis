@@ -40,19 +40,16 @@ class SequenceReplayBuffer(object):
         assert len(self.buffer) == self.cur_size
 
     def remove_n(self, n):
-        """Get n items for removal."""
         # random removal
         idxs = random.sample(xrange(self.init_length, self.cur_size), n)
         return idxs
 
     def get_batch(self, n):
-        """Get batch of episodes to train on."""
         # random batch
         idxs = random.choices(xrange(self.cur_size), k=n)
         return np.array([self.buffer[idx] for idx in idxs])
 
     def get_chunk_batch(self, n, t):
-        """Get batch of episodes with length t to train on."""
         # random batch
         idxs = random.choices(xrange(self.cur_size), k=n)
         batch = np.array([self.buffer[idx] for idx in idxs])

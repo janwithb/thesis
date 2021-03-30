@@ -3,7 +3,6 @@ import torch
 
 
 class ReplayBuffer(object):
-    """Buffer to store environment transitions."""
     def __init__(self, obs_size, action_size, capacity, device):
         self.capacity = capacity
         self.device = device
@@ -29,18 +28,15 @@ class ReplayBuffer(object):
         self.next_obses[self.idx] = next_obs
         self.not_dones[self.idx] = not done
         self.not_dones_no_max[self.idx] = not done_no_max
-
         self.idx = (self.idx + 1) % self.capacity
         self.full = self.full or self.idx == 0
 
     def sample(self, batch_size):
         idxs = np.random.randint(0, self.capacity if self.full else self.idx, size=batch_size)
-
         obses = self.obses[idxs]
         actions = self.actions[idxs]
         rewards = self.rewards[idxs]
         next_obses = self.next_obses[idxs]
         not_dones = self.not_dones[idxs]
         not_dones_no_max = self.not_dones_no_max[idxs]
-
         return obses, actions, rewards, next_obses, not_dones, not_dones_no_max

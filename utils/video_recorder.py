@@ -8,26 +8,12 @@ import numpy as np
 from io import StringIO
 from gym import error, logger
 
+
 def touch(path):
     open(path, 'a').close()
 
+
 class VideoRecorder(object):
-    """VideoRecorder renders a nice movie of a rollout, frame by frame. It
-    comes with an `enabled` option so you can still use the same code
-    on episodes where you don't want to record video.
-
-    Note:
-        You are responsible for calling `close` on a created
-        VideoRecorder, or else you may leak an encoder process.
-
-    Args:
-        env (Env): Environment to take video of.
-        path (Optional[str]): Path to the video file; will be randomly chosen if omitted.
-        base_path (Optional[str]): Alternatively, path to the video file without extension, which will be added.
-        metadata (Optional[dict]): Contents to save to the metadata file.
-        enabled (bool): Whether to actually record video, or just no-op (for convenience)
-    """
-
     def __init__(self, env, path=None, metadata=None, enabled=True, base_path=None):
         modes = env.metadata.get('render.modes', [])
         self._async = env.metadata.get('semantics.async')
@@ -232,6 +218,7 @@ class TextEncoder(object):
     @property
     def version_info(self):
         return {'backend':'TextEncoder','version':1}
+
 
 class ImageEncoder(object):
     def __init__(self, output_path, frame_shape, frames_per_sec, output_frames_per_sec):
