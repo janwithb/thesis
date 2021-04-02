@@ -60,10 +60,10 @@ def parse_args():
 
     # controller
     parser.add_argument('--controller_type', default='random_shooting', type=str)
-    parser.add_argument('--horizon', default=2, type=int)
-    parser.add_argument('--num_control_samples', default=2, type=int)
-    parser.add_argument('--max_iterations', default=3, type=int)
-    parser.add_argument('--num_elites', default=20, type=int)
+    parser.add_argument('--horizon', default=12, type=int)
+    parser.add_argument('--num_control_samples', default=1000, type=int)
+    parser.add_argument('--max_iterations', default=10, type=int)
+    parser.add_argument('--num_elites', default=100, type=int)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)
@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument('--save_iter_model_freq', default=2, type=int)
     parser.add_argument('--load_model', default=False, action='store_true')
     parser.add_argument('--load_model_dir', default='', type=str)
+    parser.add_argument('--full_tb_log', default=False, action='store_true')
     parser.add_argument('--model_log_freq', default=10, type=int)
     args = parser.parse_args()
     return args

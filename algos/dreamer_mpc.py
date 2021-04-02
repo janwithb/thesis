@@ -118,7 +118,7 @@ class DreamerMPC(DreamerBase):
                 state = state_prior.sample()
                 predicted_obs = self.observation_decoder(state, rnn_hidden)
                 imagined.append(predicted_obs)
-            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0)
+            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
             video = torch.cat((ground_truth, imagined), dim=0)
         return video
 

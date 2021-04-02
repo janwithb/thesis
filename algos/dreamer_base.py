@@ -58,7 +58,7 @@ class DreamerBase:
         clip_grad_norm_(self.model_params, self.args.grad_clip)
         self.model_optimizer.step()
 
-        if self.model_itr % self.args.model_log_freq == 0:
+        if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
             self.observation_encoder.log(self.logger, self.model_itr)
             self.observation_decoder.log(self.logger, self.model_itr)
             self.reward_model.log(self.logger, self.model_itr)
