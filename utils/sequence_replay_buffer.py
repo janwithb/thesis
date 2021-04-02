@@ -1,3 +1,6 @@
+import os
+import pickle
+
 import numpy as np
 
 
@@ -59,17 +62,24 @@ class SequenceReplayBuffer(object):
         return sampled_observations, sampled_actions, sampled_rewards, sampled_done
 
     def save(self, save_dir, save_name):
-        # payload = self.buffer
-        # with open(os.path.join(save_dir, save_name), 'wb') as f:
-        #     pickle.dump(payload, f)
-        return NotImplementedError
+        payload = {'observations': self.observations,
+                   'actions': self.actions,
+                   'rewards': self.rewards,
+                   'done': self.done,
+                   'index': self.index,
+                   'is_filled': self.is_filled}
+        with open(os.path.join(save_dir, save_name), 'wb') as f:
+            pickle.dump(payload, f)
 
     def load(self, load_dir):
-        # with open(os.path.join(load_dir), 'rb') as f:
-        #     payload = pickle.load(f)
-        #     episodes = np.array([payload[idx] for idx in range(len(payload))])
-        #     self.add(episodes)
-        return NotImplementedError
+        with open(os.path.join(load_dir), 'rb') as f:
+            payload = pickle.load(f)
+            self.observations = payload['observations']
+            self.actions = payload['actions']
+            self.rewards = payload['rewards']
+            self.done = payload['done']
+            self.index = payload['index']
+            self.is_filled = payload['is_filled']
 
     def __len__(self):
         return self.capacity if self.is_filled else self.index
