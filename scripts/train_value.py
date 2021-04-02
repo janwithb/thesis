@@ -22,11 +22,11 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--frame_stack', default=3, type=int)
+    parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=3, type=int)
     parser.add_argument('--crop_center_observation', default=True, action='store_true')
     parser.add_argument('--resize_observation', default=True, action='store_true')
-    parser.add_argument('--observation_size', default=100, type=int)
+    parser.add_argument('--observation_size', default=64, type=int)
     parser.add_argument('--grayscale_observation', default=False, action='store_true')
     parser.add_argument('--normalize_observation', default=True, action='store_true')
 
@@ -70,7 +70,7 @@ def parse_args():
     parser.add_argument('--model_lr', default=6e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
-    parser.add_argument('--representation_loss', default='contrastive', type=str)
+    parser.add_argument('--representation_loss', default='reconstruction', type=str)
     parser.add_argument('--random_crop_size', default=64, type=int)
 
     # reward model

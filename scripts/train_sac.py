@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--iter_episode_length', default=100, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
     parser.add_argument('--model_iterations', default=2, type=int)
-    parser.add_argument('--sac_iterations', default=2, type=int)
+    parser.add_argument('--sac_iterations', default=100, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--chunk_size', default=50, type=int)

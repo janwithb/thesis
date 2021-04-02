@@ -102,8 +102,14 @@ class DreamerSAC(DreamerBase):
         self.actor = DiagGaussianActor(self.feature_size, self.action_size, actor_hidden, actor_layers, log_std_bounds)
 
         # log_alpha model
-        self.log_alpha = torch.tensor(np.log(init_temperature)).to(self.device)
+        self.log_alpha = torch.tensor(np.log(init_temperature))
         self.log_alpha.requires_grad = True
+
+        # gpu settings
+        self.critic.to(self.device)
+        self.critic_target.to(self.device)
+        self.actor.to(self.device)
+        self.log_alpha.to(self.device)
 
         # set target entropy
         self.target_entropy = -self.action_size
@@ -232,7 +238,7 @@ class DreamerSAC(DreamerBase):
                 next_obs = state_batch[j]
                 reward = reward_batch[j]
                 action = actions_batch[j]
-                self.sac_replay_buffer.add(obs, action, reward, next_obs, False, False)
+                self.sac_replay_buffer.add(obs.detach(), action.detach(), reward.detach(), next_obs.detach(), False, False)
                 obs = next_obs
 
     def optimize_sac(self, replay_buffer, sac_batch_size):
@@ -304,7 +310,7 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_critic/loss', critic_loss, self.step)
+            self.logger.log('train_critic/critic_loss', critic_loss, self.step)
         return critic_loss
 
     def actor_loss(self, obs):
@@ -318,7 +324,7 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_actor/loss', actor_loss, self.step)
+            self.logger.log('train_actor/actor_loss', actor_loss, self.step)
             self.logger.log('train_actor/target_entropy', self.target_entropy, self.step)
             self.logger.log('train_actor/entropy', -log_prob.mean(), self.step)
         return actor_loss, log_prob
@@ -328,14 +334,14 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_alpha/loss', alpha_loss, self.step)
+            self.logger.log('train_alpha/value_loss', alpha_loss, self.step)
             self.logger.log('train_alpha/value', self.alpha, self.step)
         return alpha_loss
 
     def policy(self, state, sample=False):
         feat = get_feat(state)
         dist = self.actor(feat)
-        action = dist.sample() if sample else dist.mean
+        action = dist.sample() if sample else dist.mode
         action = action.clamp(*self.action_range)
         return action, dist
 

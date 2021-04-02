@@ -1,76 +1,43 @@
-import os
-
-import torch
-
 from tqdm import tqdm
-from utils.sequence_replay_buffer import Episode
-from utils.video_recorder import VideoRecorder
 
 
 class Sampler:
-    def __init__(self, env, video_recorder=None):
+    def __init__(self, env, replay_buffer, agent):
         super().__init__()
 
         self.env = env
-        self.video_recorder = video_recorder
+        self.replay_buffer = replay_buffer
+        self.agent = agent
 
-    def collect_random_episodes(self, collect_episodes, collect_episode_length, render=False):
-        episodes = []
-        total_steps = 0
+    def collect_episodes(self, collect_episodes, exploration=False, random=False, render=False):
+        self.agent.reset()
+        all_episode_actions = []
+        all_episode_observations = []
+        all_episode_steps = []
+        all_episode_rewards = []
         for _ in tqdm(range(collect_episodes), desc='Collect episodes'):
-            observation, done = self.env.reset(), False
-            starting_state = observation
-            observations, actions, rewards = [], [], []
-            for t in range(collect_episode_length):
-                action = self.env.action_space.sample()
+            episode_actions = []
+            episode_observations = []
+            episode_step = 0
+            episode_reward = 0
+            observation = self.env.reset()
+            done = False
+            while not done:
+                if random:
+                    action = self.env.action_space.sample()
+                else:
+                    action = self.agent.get_action(observation, exploration=exploration)
+                episode_actions.append(action)
+                episode_observations.append(observation)
                 next_observation, reward, done, info = self.env.step(action)
-                observations.append(next_observation)
-                actions.append(action)
-                rewards.append(reward)
+                self.replay_buffer.push(observation, action, reward, done)
+                observation = next_observation
+                episode_step += 1
+                episode_reward += reward
                 if render:
                     self.env.render(height=400, width=400, camera_id=0)
-                if self.video_recorder is not None:
-                    self.video_recorder.capture_frame()
-                total_steps += 1
-            episode = Episode(observations, actions, rewards, starting_state)
-            episodes.append(episode)
-        return episodes, total_steps
-
-    def collect_policy_episodes(self, collect_episodes, collect_episode_length, policy, representation,
-                                device, render=False):
-        episodes = []
-        total_steps = 0
-        for _ in tqdm(range(collect_episodes), desc='Collect episodes'):
-            observation, done = self.env.reset(), False
-            starting_state = observation
-            observations, actions, rewards = [], [], []
-            rssm_state = representation(torch.as_tensor(observation, device=device), None, None)
-            for t in range(collect_episode_length):
-                action = policy(rssm_state)
-                next_observation, reward, done, info = self.env.step(action)
-                rssm_state = representation(torch.as_tensor(next_observation, device=device),
-                                            torch.as_tensor(action, device=device),
-                                            rssm_state)
-                observations.append(next_observation)
-                actions.append(action)
-                rewards.append(reward)
-                if render:
-                    self.env.render(height=400, width=400, camera_id=0)
-                if self.video_recorder is not None:
-                    self.video_recorder.capture_frame()
-                total_steps += 1
-            episode = Episode(observations, actions, rewards, starting_state)
-            episodes.append(episode)
-        return episodes, total_steps
-
-    def reset_video_recorder(self, video_dir, video_name):
-        # close any existing video recorder
-        if self.video_recorder:
-            self.video_recorder.close()
-
-        # start recording the next video
-        self.video_recorder = VideoRecorder(
-            self.env,
-            base_path=os.path.join(video_dir, video_name),
-            enabled=True
-        )
+            all_episode_actions.append(episode_actions)
+            all_episode_observations.append(episode_observations)
+            all_episode_steps.append(episode_step)
+            all_episode_rewards.append(episode_reward)
+        return all_episode_actions, all_episode_observations, all_episode_steps, all_episode_rewards

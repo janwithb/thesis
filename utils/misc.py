@@ -7,7 +7,6 @@ import torch.nn as nn
 
 from typing import Iterable
 from torch.nn import Module
-from models.rssm import RSSMState
 from skimage.util.shape import view_as_windows
 
 
@@ -136,24 +135,6 @@ def compute_return(reward: torch.Tensor,
     returns = torch.flip(torch.stack(outputs), [0])
     returns = torch.transpose(returns, 0, 1)
     return returns
-
-
-def flatten_rssm_state(state: RSSMState):
-    state.mean = torch.flatten(state.mean, start_dim=0, end_dim=1)
-    state.std = torch.flatten(state.std, start_dim=0, end_dim=1)
-    state.stoch = torch.flatten(state.stoch, start_dim=0, end_dim=1)
-    state.deter = torch.flatten(state.deter, start_dim=0, end_dim=1)
-    return state
-
-
-def slice_rssm_state(state: RSSMState, batch_size, chunk_size):
-    new_state = RSSMState(
-        state.mean[:batch_size, chunk_size],
-        state.std[:batch_size, chunk_size],
-        state.stoch[:batch_size, chunk_size],
-        state.deter[:batch_size, chunk_size]
-    )
-    return new_state
 
 
 def mlp(input_dim, hidden_dim, output_dim, hidden_depth, output_mod=None):

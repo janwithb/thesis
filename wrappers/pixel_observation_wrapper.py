@@ -1,32 +1,22 @@
 import numpy as np
 
-from PIL import Image
 from gym import spaces
 from gym import ObservationWrapper
 
 
 class PixelObservation(ObservationWrapper):
-    def __init__(self,
-                 env,
-                 crop_center_observation=False,
-                 resize_observation=False,
-                 observation_size=100,
-                 grayscale_observation=False,
-                 normalize_observation=False):
+    def __init__(self, env, observation_size):
         super(PixelObservation, self).__init__(env)
-
-        self._env = env
-        self._crop_center_observation = crop_center_observation
-        self._resize_observation = resize_observation
+        self.env = env
         self._observation_size = observation_size
-        self._grayscale_observation = grayscale_observation
-        self._normalize_observation = normalize_observation
 
         # extend observation space with pixels
         pixels = self.preprocess_observation(self.env.render(mode='rgb_array',
                                                              height=observation_size,
                                                              width=observation_size,
                                                              camera_id=0))
+
+        # set observation space
         if np.issubdtype(pixels.dtype, np.integer):
             low, high = (0, 255)
         elif np.issubdtype(pixels.dtype, np.float32):
@@ -37,47 +27,17 @@ class PixelObservation(ObservationWrapper):
         self.observation_space = pixels_space
 
     def observation(self, observation):
-        pixel_observation = self._env.render(mode='rgb_array',
-                                             height=self._observation_size,
-                                             width=self._observation_size,
-                                             camera_id=0)
+        pixel_observation = self.env.render(mode='rgb_array',
+                                            height=self._observation_size,
+                                            width=self._observation_size,
+                                            camera_id=0)
         prepocessed_observation = self.preprocess_observation(pixel_observation)
         return prepocessed_observation
 
     def preprocess_observation(self, observation):
-        prepocessed_observation = observation
-        if self._crop_center_observation:
-            prepocessed_observation = self.crop_center_observation(observation)
-        if self._resize_observation:
-            prepocessed_observation = self.resize_observation(prepocessed_observation)
-        if self._grayscale_observation:
-            prepocessed_observation = self.grayscale_observation(prepocessed_observation)
-        if self._normalize_observation:
-            prepocessed_observation = self.normalize_observation(prepocessed_observation)
+        # normalize observation
+        prepocessed_observation = np.array(observation).astype(np.float32) / 255.0 - 0.5
 
         # change shape from (height, width, channels) to (channels, height, width)
         prepocessed_observation = np.rollaxis(prepocessed_observation, 2, 0)
         return prepocessed_observation
-
-    def crop_center_observation(self, observation):
-        pil_img = Image.fromarray(observation)
-        crop_width, crop_height = min(pil_img.size), min(pil_img.size)
-        img_width, img_height = pil_img.size
-        cropped_pil_img = pil_img.crop(((img_width - crop_width) // 2,
-                                        (img_height - crop_height) // 2,
-                                        (img_width + crop_width) // 2,
-                                        (img_height + crop_height) // 2))
-        return np.asarray(cropped_pil_img)
-
-    def resize_observation(self, observation):
-        pil_img = Image.fromarray(observation)
-        resized_pil_img = pil_img.resize((self._observation_size, self._observation_size))
-        return np.asarray(resized_pil_img)
-
-    def grayscale_observation(self, observation):
-        pil_img = Image.fromarray(observation)
-        grayscale_pil_img = np.expand_dims(np.asarray(pil_img.convert('L')), 2)
-        return grayscale_pil_img
-
-    def normalize_observation(self, observation):
-        return np.array(observation).astype(np.float32) / 255.0 - 0.5

@@ -1,265 +1,84 @@
 import torch
-import torch.distributions as td
-import torch.nn as nn
-import torch.nn.functional as tf
+
+from torch import nn
+from torch.nn import functional as F
+from torch.distributions import Normal
 
 
-class RSSMState:
-    def __init__(self, mean, std, stoch, deter):
-        super().__init__()
-        self.mean = mean
-        self.std = std
-        self.stoch = stoch
-        self.deter = deter
-
-
-def stack_states(rssm_states: list, dim):
-    return RSSMState(
-        torch.stack([state.mean for state in rssm_states], dim=dim),
-        torch.stack([state.std for state in rssm_states], dim=dim),
-        torch.stack([state.stoch for state in rssm_states], dim=dim),
-        torch.stack([state.deter for state in rssm_states], dim=dim),
-    )
-
-
-def get_state(state: RSSMState, batch_b, batch_t):
-    return RSSMState(
-        state.mean[:batch_b, batch_t],
-        state.std[:batch_b, batch_t],
-        state.stoch[:batch_b, batch_t],
-        state.deter[:batch_b, batch_t]
-    )
-
-
-def detach_rssm_state(state: RSSMState):
-    state.mean = state.mean.detach()
-    state.std = state.std.detach()
-    state.stoch = state.stoch.detach()
-    state.deter = state.deter.detach()
-    return state
-
-
-def get_feat(rssm_state: RSSMState):
-    return torch.cat((rssm_state.stoch, rssm_state.deter), dim=-1)
-
-
-def get_dist(rssm_state: RSSMState):
-    return td.independent.Independent(td.Normal(rssm_state.mean, rssm_state.std), 1)
-
-
-class TransitionBase(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, prev_action, prev_state):
-        raise NotImplementedError
-
-
-class RepresentationBase(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, obs_embed, prev_action, prev_state):
-        raise NotImplementedError
-
-
-class RollOutModule(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, steps, obs_embed, prev_action, prev_state):
-        raise NotImplementedError
-
-
-class RSSMTransition(TransitionBase):
-    def __init__(self,
-                 action_size,
-                 stochastic_size=30,
-                 deterministic_size=200,
-                 hidden_size=200,
-                 activation=nn.ELU,
-                 distribution=td.Normal):
-        super().__init__()
-
-        self._action_size = action_size
-        self._stoch_size = stochastic_size
-        self._deter_size = deterministic_size
-        self._hidden_size = hidden_size
-        self._activation = activation
-        self._cell = nn.GRUCell(hidden_size, deterministic_size)
-        self._rnn_input_model = self._build_rnn_input_model()
-        self._stochastic_prior_model = self._build_stochastic_model()
-        self._dist = distribution
+class RecurrentStateSpaceModel(nn.Module):
+    """
+    This class includes multiple components
+    Deterministic state model: h_t+1 = f(h_t, s_t, a_t)
+    Stochastic state model (prior): p(s_t+1 | h_t+1)
+    State posterior: q(s_t | h_t, o_t)
+    NOTE: actually, this class takes embedded observation by Encoder class
+    min_stddev is added to stddev same as original implementation
+    Activation function for this class is F.relu same as original implementation
+    """
+    def __init__(self, state_dim, rnn_hidden_dim, action_dim,
+                 hidden_dim=200, min_stddev=0.1, act=F.relu):
+        super(RecurrentStateSpaceModel, self).__init__()
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.rnn_hidden_dim = rnn_hidden_dim
+        self.fc_state_action = nn.Linear(state_dim + action_dim, hidden_dim)
+        self.fc_rnn_hidden = nn.Linear(rnn_hidden_dim, hidden_dim)
+        self.fc_state_mean_prior = nn.Linear(hidden_dim, state_dim)
+        self.fc_state_stddev_prior = nn.Linear(hidden_dim, state_dim)
+        self.fc_rnn_hidden_embedded_obs = nn.Linear(rnn_hidden_dim + 1024, hidden_dim)
+        self.fc_state_mean_posterior = nn.Linear(hidden_dim, state_dim)
+        self.fc_state_stddev_posterior = nn.Linear(hidden_dim, state_dim)
+        self.rnn = nn.GRUCell(hidden_dim, rnn_hidden_dim)
+        self._min_stddev = min_stddev
+        self.act = act
         self._outputs = dict()
 
-    def _build_rnn_input_model(self):
-        rnn_input_model = [nn.Linear(self._action_size + self._stoch_size, self._hidden_size)]
-        rnn_input_model += [self._activation()]
-        return nn.Sequential(*rnn_input_model)
+    def forward(self, state, action, rnn_hidden, embedded_next_obs):
+        """
+        h_t+1 = f(h_t, s_t, a_t)
+        Return prior p(s_t+1 | h_t+1) and posterior p(s_t+1 | h_t+1, o_t+1)
+        for model training
+        """
+        next_state_prior, rnn_hidden = self.prior(state, action, rnn_hidden)
+        self._outputs['next_state_prior_mean'] = next_state_prior.mean
+        self._outputs['next_state_prior_std'] = next_state_prior.stddev
+        self._outputs['rnn_hidden'] = rnn_hidden
+        next_state_posterior = self.posterior(rnn_hidden, embedded_next_obs)
+        self._outputs['next_state_posterior_mean'] = next_state_posterior.mean
+        self._outputs['next_state_posterior_std'] = next_state_posterior.stddev
+        return next_state_prior, next_state_posterior, rnn_hidden
 
-    def _build_stochastic_model(self):
-        stochastic_model = [nn.Linear(self._hidden_size, self._hidden_size)]
-        stochastic_model += [self._activation()]
-        stochastic_model += [nn.Linear(self._hidden_size, 2 * self._stoch_size)]
-        return nn.Sequential(*stochastic_model)
+    def prior(self, state, action, rnn_hidden):
+        """
+        h_t+1 = f(h_t, s_t, a_t)
+        Compute prior p(s_t+1 | h_t+1)
+        """
+        hidden = self.act(self.fc_state_action(torch.cat([state, action], dim=1)))
+        rnn_hidden = self.rnn(hidden, rnn_hidden)
+        hidden = self.act(self.fc_rnn_hidden(rnn_hidden))
 
-    def initial_state(self, batch_size, **kwargs):
-        return RSSMState(
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._deter_size, **kwargs),
-        )
+        mean = self.fc_state_mean_prior(hidden)
+        stddev = F.softplus(self.fc_state_stddev_prior(hidden)) + self._min_stddev
+        return Normal(mean, stddev), rnn_hidden
 
-    def forward(self, prev_action: torch.Tensor, prev_state: RSSMState):
-        rnn_input = self._rnn_input_model(torch.cat([prev_action, prev_state.stoch], dim=-1))
-        self._outputs['rnn_input'] = rnn_input
-        deter_state = self._cell(rnn_input, prev_state.deter)
-        self._outputs['deter_state'] = deter_state
-        mean, std = torch.chunk(self._stochastic_prior_model(deter_state), 2, dim=-1)
-        self._outputs['mean'] = deter_state
-        self._outputs['std'] = deter_state
-        std = tf.softplus(std) + 0.1
-        dist = self._dist(mean, std)
-        stoch_state = dist.rsample()
-        return RSSMState(mean, std, stoch_state, deter_state)
+    def posterior(self, rnn_hidden, embedded_obs):
+        """
+        Compute posterior q(s_t | h_t, o_t)
+        """
+        hidden = self.act(self.fc_rnn_hidden_embedded_obs(
+            torch.cat([rnn_hidden, embedded_obs], dim=1)))
+        mean = self.fc_state_mean_posterior(hidden)
+        stddev = F.softplus(self.fc_state_stddev_posterior(hidden)) + self._min_stddev
+        return Normal(mean, stddev)
 
     def log(self, logger, step):
         for k, v in self._outputs.items():
-            logger.log_histogram(f'train_transition_model/{k}_hist', v, step)
+            logger.log_histogram(f'train_rssm/{k}_hist', v, step)
 
-        for i, m in enumerate(self._rnn_input_model):
-            if type(m) == nn.Linear:
-                logger.log_param(f'train_transition_model/fc{i}', m, step)
-
-        for i, m in enumerate(self._stochastic_prior_model):
-            if type(m) == nn.Linear:
-                logger.log_param(f'train_transition_model/fc{i}', m, step)
-
-
-class RSSMRepresentation(RepresentationBase):
-    def __init__(self,
-                 transition_model: RSSMTransition,
-                 obs_embed_size,
-                 action_size,
-                 stochastic_size=30,
-                 deterministic_size=200,
-                 hidden_size=200,
-                 activation=nn.ELU,
-                 distribution=td.Normal):
-        super().__init__()
-
-        self._transition_model = transition_model
-        self._obs_embed_size = obs_embed_size
-        self._action_size = action_size
-        self._stoch_size = stochastic_size
-        self._deter_size = deterministic_size
-        self._hidden_size = hidden_size
-        self._activation = activation
-        self._dist = distribution
-        self._stochastic_posterior_model = self._build_stochastic_model()
-        self._outputs = dict()
-
-    def _build_stochastic_model(self):
-        stochastic_model = [nn.Linear(self._deter_size + self._obs_embed_size, self._hidden_size)]
-        stochastic_model += [self._activation()]
-        stochastic_model += [nn.Linear(self._hidden_size, 2 * self._stoch_size)]
-        return nn.Sequential(*stochastic_model)
-
-    def initial_state(self, batch_size, **kwargs):
-        return RSSMState(
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._stoch_size, **kwargs),
-            torch.zeros(batch_size, self._deter_size, **kwargs),
-        )
-
-    def forward(self, obs_embed: torch.Tensor, prev_action: torch.Tensor, prev_state: RSSMState):
-        prior_state = self._transition_model(prev_action, prev_state)
-        x = torch.cat([prior_state.deter, obs_embed], -1)
-        self._outputs['prior_state'] = x
-        mean, std = torch.chunk(self._stochastic_posterior_model(x), 2, dim=-1)
-        self._outputs['mean'] = mean
-        self._outputs['std'] = std
-        std = tf.softplus(std) + 0.1
-        dist = self._dist(mean, std)
-        stoch_state = dist.rsample()
-        posterior_state = RSSMState(mean, std, stoch_state, prior_state.deter)
-        return prior_state, posterior_state
-
-    def log(self, logger, step):
-        for k, v in self._outputs.items():
-            logger.log_histogram(f'train_representation_model/{k}_hist', v, step)
-
-        for i, m in enumerate(self._stochastic_posterior_model):
-            if type(m) == nn.Linear:
-                logger.log_param(f'train_representation_model/fc{i}', m, step)
-
-
-class RSSMRollout(RollOutModule):
-    def __init__(self, representation_model: RSSMRepresentation, transition_model: RSSMTransition):
-        super().__init__()
-
-        self._representation_model = representation_model
-        self._transition_model = transition_model
-
-    def forward(self, steps: int, obs_embed: torch.Tensor, action: torch.Tensor, prev_state: RSSMState):
-        return self.rollout_representation(steps, obs_embed, action, prev_state)
-
-    def rollout_representation(self, steps: int, obs_embed: torch.Tensor, action: torch.Tensor,
-                               prev_state: RSSMState):
-        """
-        Roll out the model with actions and observations from data.
-        :param steps: number of steps to roll out
-        :param obs_embed: size(batch_size, time_steps, embedding_size)
-        :param action: size(batch_size, time_steps, action_size)
-        :param prev_state: RSSM state, size(batch_size, state_size)
-        :return: prior, posterior states. size(batch_size, time_steps, state_size)
-        """
-        priors = []
-        posteriors = []
-        for t in range(steps):
-            prior_state, posterior_state = self._representation_model(obs_embed[:, t], action[:, t], prev_state)
-            priors.append(prior_state)
-            posteriors.append(posterior_state)
-            prev_state = posterior_state
-        prior = stack_states(priors, dim=1)
-        post = stack_states(posteriors, dim=1)
-        return prior, post
-
-    def rollout_transition(self, steps: int, action: torch.Tensor, prev_state: RSSMState):
-        """
-        Roll out the model with actions from data.
-        :param steps: number of steps to roll out
-        :param action: size(batch_size, time_steps, action_size)
-        :param prev_state: RSSM state, size(batch_size, state_size)
-        :return: prior states. size(batch_size, time_steps, state_size)
-        """
-        priors = []
-        state = prev_state
-        for t in range(steps):
-            state = self._transition_model(action[:, t], state)
-            priors.append(state)
-        return stack_states(priors, dim=1)
-
-    def rollout_policy(self, steps: int, policy, prev_state: RSSMState):
-        """
-        Roll out the model with a policy function.
-        :param steps: number of steps to roll out
-        :param policy: RSSMState -> action
-        :param prev_state: RSSM state, size(batch_size, state_size)
-        :return: next states size(batch_size, time_steps, state_size),
-                 actions size(batch_size, time_steps, action_size)
-        """
-        state = prev_state
-        next_states = []
-        actions = []
-        state = detach_rssm_state(state)
-        for t in range(steps):
-            action, _ = policy(detach_rssm_state(state))
-            state = self._transition_model(action, state)
-            next_states.append(state)
-            actions.append(action)
-        next_states = stack_states(next_states, dim=1)
-        actions = torch.stack(actions, dim=1)
-        return next_states, actions
+        logger.log_param('train_rssm/fc_state_action', self.fc_state_action, step)
+        logger.log_param('train_rssm/fc_rnn_hidden', self.fc_rnn_hidden, step)
+        logger.log_param('train_rssm/fc_state_mean_prior', self.fc_state_mean_prior, step)
+        logger.log_param('train_rssm/fc_state_stddev_prior', self.fc_state_stddev_prior, step)
+        logger.log_param('train_rssm/fc_rnn_hidden_embedded_obs', self.fc_rnn_hidden_embedded_obs, step)
+        logger.log_param('train_rssm/fc_state_mean_posterior', self.fc_state_mean_posterior, step)
+        logger.log_param('train_rssm/fc_state_stddev_posterior', self.fc_state_stddev_posterior, step)

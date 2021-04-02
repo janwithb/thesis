@@ -1,77 +1,75 @@
-import os
-import pickle
-import random
-
 import numpy as np
-from six.moves import xrange
-
-
-class Episode(object):
-    def __init__(self, observations, actions, rewards, starting_state):
-        self.states = observations
-        self.actions = actions
-        self.rewards = rewards
-        self.starting_state = starting_state
 
 
 class SequenceReplayBuffer(object):
-    def __init__(self, max_size):
-        self.max_size = max_size
-        self.cur_size = 0
-        self.buffer = {}
-        self.init_length = 0
+    """
+    Replay buffer for training with RNN
+    """
+    def __init__(self, capacity, observation_shape, action_dim):
+        self.capacity = capacity
 
-    def __len__(self):
-        return self.cur_size
+        self.observations = np.zeros((capacity, *observation_shape), dtype=np.float32)
+        self.actions = np.zeros((capacity, action_dim), dtype=np.float32)
+        self.rewards = np.zeros((capacity, 1), dtype=np.float32)
+        self.done = np.zeros((capacity, 1), dtype=np.bool)
 
-    def add(self, episodes):
-        idx = 0
-        while self.cur_size < self.max_size and idx < len(episodes):
-            self.buffer[self.cur_size] = episodes[idx]
-            self.cur_size += 1
-            idx += 1
+        self.index = 0
+        self.is_filled = False
 
-        if idx < len(episodes):
-            remove_idxs = self.remove_n(len(episodes) - idx)
-            for remove_idx in remove_idxs:
-                self.buffer[remove_idx] = episodes[idx]
-                idx += 1
+    def push(self, observation, action, reward, done):
+        """
+        Add experience to replay buffer
+        NOTE: observation should be transformed to np.uint8 before push
+        """
+        self.observations[self.index] = observation
+        self.actions[self.index] = action
+        self.rewards[self.index] = reward
+        self.done[self.index] = done
 
-        assert len(self.buffer) == self.cur_size
+        if self.index == self.capacity - 1:
+            self.is_filled = True
+        self.index = (self.index + 1) % self.capacity
 
-    def remove_n(self, n):
-        # random removal
-        idxs = random.sample(xrange(self.init_length, self.cur_size), n)
-        return idxs
+    def sample(self, batch_size, chunk_length):
+        """
+        Sample experiences from replay buffer (almost) uniformly
+        The resulting array will be of the form (batch_size, chunk_length)
+        and each batch is consecutive sequence
+        NOTE: too large chunk_length for the length of episode will cause problems
+        """
+        episode_borders = np.where(self.done)[0]
+        sampled_indexes = []
+        for _ in range(batch_size):
+            cross_border = True
+            while cross_border:
+                initial_index = np.random.randint(len(self) - chunk_length + 1)
+                final_index = initial_index + chunk_length - 1
+                cross_border = np.logical_and(initial_index <= episode_borders,
+                                              episode_borders < final_index).any()
+            sampled_indexes += list(range(initial_index, final_index + 1))
 
-    def get_batch(self, n):
-        # random batch
-        idxs = random.choices(xrange(self.cur_size), k=n)
-        return np.array([self.buffer[idx] for idx in idxs])
-
-    def get_chunk_batch(self, n, t):
-        # random batch
-        idxs = random.choices(xrange(self.cur_size), k=n)
-        batch = np.array([self.buffer[idx] for idx in idxs])
-        for episode in batch:
-            start_idx = random.randint(0, len(episode.states) - t)
-            if start_idx != 0:
-                episode.starting_state = episode.states[start_idx - 1]
-            states_chunk = np.array(episode.states)[start_idx:start_idx + t]
-            actions_chunk = np.array(episode.actions)[start_idx:start_idx + t]
-            rewards_chunk = np.array(episode.rewards)[start_idx:start_idx + t]
-            episode.states = states_chunk
-            episode.actions = actions_chunk
-            episode.rewards = rewards_chunk
-        return batch
+        sampled_observations = self.observations[sampled_indexes].reshape(
+            batch_size, chunk_length, *self.observations.shape[1:])
+        sampled_actions = self.actions[sampled_indexes].reshape(
+            batch_size, chunk_length, self.actions.shape[1])
+        sampled_rewards = self.rewards[sampled_indexes].reshape(
+            batch_size, chunk_length, 1)
+        sampled_done = self.done[sampled_indexes].reshape(
+            batch_size, chunk_length, 1)
+        return sampled_observations, sampled_actions, sampled_rewards, sampled_done
 
     def save(self, save_dir, save_name):
-        payload = self.buffer
-        with open(os.path.join(save_dir, save_name), 'wb') as f:
-            pickle.dump(payload, f)
+        # payload = self.buffer
+        # with open(os.path.join(save_dir, save_name), 'wb') as f:
+        #     pickle.dump(payload, f)
+        return NotImplementedError
 
     def load(self, load_dir):
-        with open(os.path.join(load_dir), 'rb') as f:
-            payload = pickle.load(f)
-            episodes = np.array([payload[idx] for idx in range(len(payload))])
-            self.add(episodes)
+        # with open(os.path.join(load_dir), 'rb') as f:
+        #     payload = pickle.load(f)
+        #     episodes = np.array([payload[idx] for idx in range(len(payload))])
+        #     self.add(episodes)
+        return NotImplementedError
+
+    def __len__(self):
+        return self.capacity if self.is_filled else self.index
