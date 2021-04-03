@@ -43,7 +43,6 @@ def parse_args():
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
-    parser.add_argument('--exploration_noise_var', type=float, default=0.3)
 
     # evaluation
     parser.add_argument('--eval_freq', default=10, type=int)
@@ -58,12 +57,13 @@ def parse_args():
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
 
-    # controller
+    # agent
     parser.add_argument('--controller_type', default='random_shooting', type=str)
     parser.add_argument('--horizon', default=12, type=int)
     parser.add_argument('--num_control_samples', default=1000, type=int)
     parser.add_argument('--max_iterations', default=10, type=int)
     parser.add_argument('--num_elites', default=100, type=int)
+    parser.add_argument('--exploration_noise_var', type=float, default=0.3)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)

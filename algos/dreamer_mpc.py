@@ -69,7 +69,7 @@ class DreamerMPC(DreamerBase):
             self.logger.log('train/best_ep_reward', best_ep_reward, episode)
 
             # model training loop
-            for _ in tqdm(range(self.args.model_iterations), desc='Model training'):
+            for _ in range(self.args.model_iterations):
                 self.optimize_model()
 
             # save model frequently

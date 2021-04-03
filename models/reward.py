@@ -19,11 +19,14 @@ class RewardModel(nn.Module):
         self._outputs = dict()
 
     def forward(self, state, rnn_hidden):
-        feature = self.fc1(torch.cat([state, rnn_hidden], dim=1))
+        feature = torch.cat([state, rnn_hidden], dim=1)
         self._outputs['feature'] = feature
-        hidden = self.act(feature)
+        hidden = self.act(self.fc1(feature))
+        self._outputs['fc1'] = hidden
         hidden = self.act(self.fc2(hidden))
+        self._outputs['fc2'] = hidden
         hidden = self.act(self.fc3(hidden))
+        self._outputs['fc3'] = hidden
         reward = self.fc4(hidden)
         self._outputs['reward'] = reward
         return reward

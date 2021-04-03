@@ -1,6 +1,3 @@
-from tqdm import tqdm
-
-
 class Sampler:
     def __init__(self, env, replay_buffer, agent):
         super().__init__()
@@ -15,7 +12,7 @@ class Sampler:
         all_episode_observations = []
         all_episode_steps = []
         all_episode_rewards = []
-        for _ in tqdm(range(collect_episodes), desc='Collect episodes'):
+        for _ in range(collect_episodes):
             episode_actions = []
             episode_observations = []
             episode_step = 0

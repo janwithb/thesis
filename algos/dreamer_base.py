@@ -18,17 +18,16 @@ class DreamerBase:
         self.device = device
         self.args = args
         self.model_itr = 0
-
-        feature_size = args.stochastic_size + args.deterministic_size
+        self.feature_size = args.stochastic_size + args.deterministic_size
 
         # encoder model
         self.observation_encoder = ObservationEncoder()
 
         # decoder model
-        self.observation_decoder = ObservationDecoder(feature_size)
+        self.observation_decoder = ObservationDecoder(self.feature_size)
 
         # reward model
-        self.reward_model = RewardModel(feature_size, args.reward_hidden_dim)
+        self.reward_model = RewardModel(self.feature_size, args.reward_hidden_dim)
 
         # recurrent state space model
         self.rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
@@ -50,7 +49,7 @@ class DreamerBase:
 
     def optimize_model(self):
         # compute model loss
-        model_loss = self.model_loss()
+        model_loss, flatten_states, flatten_rnn_hiddens = self.model_loss()
 
         # take gradient step
         self.model_optimizer.zero_grad()
@@ -63,6 +62,7 @@ class DreamerBase:
             self.observation_decoder.log(self.logger, self.model_itr)
             self.reward_model.log(self.logger, self.model_itr)
             self.rssm.log(self.logger, self.model_itr)
+        return flatten_states, flatten_rnn_hiddens
 
     def model_loss(self):
         observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
@@ -125,4 +125,4 @@ class DreamerBase:
                 self.logger.log('train_model/reward_loss', reward_loss.item(), self.model_itr)
                 self.logger.log('train_model/kl_loss', kl_loss.item(), self.model_itr)
                 self.logger.log('train_model/overall_loss', model_loss.item(), self.model_itr)
-        return model_loss
+        return model_loss, flatten_states, flatten_rnn_hiddens

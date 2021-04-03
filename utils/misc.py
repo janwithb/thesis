@@ -184,3 +184,33 @@ def compute_logits(z_a, z_pos, z_dim):
     logits = torch.matmul(z_a, Wz)  # (B,B)
     logits = logits - torch.max(logits, 1)[0][:, None]
     return logits
+
+def lambda_target(rewards, values, gamma, lambda_):
+    """
+    Compute lambda target of value function
+    rewards and values should be 2D-tensor and same size,
+    and first-dimension means time step
+    gamma is discount factor and lambda_ is weight to compute lambda target
+    """
+    V_lambda = torch.zeros_like(rewards, device=rewards.device)
+
+    H = rewards.shape[0] - 1
+    V_n = torch.zeros_like(rewards, device=rewards.device)
+    V_n[H] = values[H]
+    for n in range(1, H+1):
+        # compute n-step target
+        # NOTE: If it hits the end, compromise with the largest possible n-step return
+        V_n[:-n] = (gamma ** n) * values[n:]
+        for k in range(1, n+1):
+            if k == n:
+                V_n[:-n] += (gamma ** (n-1)) * rewards[k:]
+            else:
+                V_n[:-n] += (gamma ** (k-1)) * rewards[k:-n+k]
+
+        # add lambda_ weighted n-step target to compute lambda target
+        if n == H:
+            V_lambda += (lambda_ ** (H-1)) * V_n
+        else:
+            V_lambda += (1 - lambda_) * (lambda_ ** (n-1)) * V_n
+
+    return V_lambda
