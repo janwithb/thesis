@@ -69,10 +69,11 @@ class CEM(object):
             # return only first action
             action = mean[0]
             expl_std = torch.sqrt(torch.as_tensor(self.exploration_noise_var, device=self.device))
+            expl_mean = torch.tensor(0).to(device=self.device)
 
             # exploration
             if exploration:
-                action += torch.normal(0., expl_std, size=(self.action_dim,))
+                action += torch.normal(expl_mean, expl_std, size=(self.action_dim,))
 
             # update rnn hidden state for next step planning
             _, self.rnn_hidden = self.rssm.prior(state_posterior.sample(),
