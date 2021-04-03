@@ -16,15 +16,14 @@ from utils.sampler import Sampler
 
 
 class DreamerValue(DreamerBase):
-    def __init__(self, env, logger, replay_buffer, device, args):
-        super().__init__(logger, replay_buffer, device, args)
-        self.args = args
+    def __init__(self, env, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # value model
         self.value_model = ValueModel(self.feature_size)
 
         # action model
-        self.action_model = ActionModel(self.feature_size, args.action_dim)
+        self.action_model = ActionModel(self.feature_size, self.args.action_dim)
 
         # gpu settings
         self.value_model.to(self.device)
@@ -32,21 +31,21 @@ class DreamerValue(DreamerBase):
 
         # action model optimizer
         self.value_model_optimizer = torch.optim.Adam(self.value_model.parameters(),
-                                                      lr=args.value_lr,
-                                                      eps=args.value_eps)
+                                                      lr=self.args.value_lr,
+                                                      eps=self.args.value_eps)
 
         # value model optimizer
         self.action_model_optimizer = torch.optim.Adam(self.action_model.parameters(),
-                                                       lr=args.action_lr,
-                                                       eps=args.action_eps)
+                                                       lr=self.args.action_lr,
+                                                       eps=self.args.action_eps)
 
         self.agent = PolicyAgent(self.device,
-                                 args.action_dim,
+                                 self.args.action_dim,
                                  self.rssm,
                                  self.observation_encoder,
                                  self.action_model,
-                                 args.exploration_noise_var)
-        self.sampler = Sampler(env, replay_buffer, self.agent)
+                                 self.args.exploration_noise_var)
+        self.sampler = Sampler(env, self.replay_buffer, self.agent)
 
     def train(self):
         episode = 0

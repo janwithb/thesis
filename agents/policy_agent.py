@@ -22,14 +22,16 @@ class PolicyAgent(object):
             state_posterior = self.rssm.posterior(self.rnn_hidden, embedded_obs)
             state = state_posterior.sample()
             action = self.action_model(state, self.rnn_hidden, exploration=exploration)
+            expl_std = torch.sqrt(torch.as_tensor(self.exploration_noise_var, device=self.device))
+
+            # exploration
+            if exploration:
+                action += torch.normal(0., expl_std, size=(self.action_dim,))
 
             # update rnn_hidden for next step
             _, self.rnn_hidden = self.rssm.prior(state, action, self.rnn_hidden)
 
-        # exploration
         action = action.squeeze().cpu().numpy()
-        if exploration:
-            action += np.random.normal(0, np.sqrt(self.exploration_noise_var), self.action_dim)
         return action
 
     def reset(self):

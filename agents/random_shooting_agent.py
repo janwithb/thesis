@@ -63,21 +63,20 @@ class RandomShooting(object):
             # pick best action sequence
             best_sim_number = torch.argmax(total_predicted_reward)
 
-        # select first action
-        action = action_candidates[0, best_sim_number, :]
+            # select first action
+            action = action_candidates[0, best_sim_number, :]
+            expl_std = torch.sqrt(torch.as_tensor(self.exploration_noise_var, device=self.device))
 
-        # update rnn hidden state for next step planning
-        with torch.no_grad():
+            # exploration
+            if exploration:
+                action += torch.normal(0., expl_std, size=(self.action_dim,))
+
+            # update rnn hidden state for next step planning
             _, self.rnn_hidden = self.rssm.prior(state_posterior.sample(),
                                                  action.unsqueeze(0),
                                                  self.rnn_hidden)
 
-        # exploration
         action = action.cpu().numpy()
-        if exploration:
-            action += np.random.normal(0, np.sqrt(self.exploration_noise_var), self.action_dim)
-
-        # select first action
         return action
 
     def reset(self):

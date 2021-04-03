@@ -66,20 +66,20 @@ class CEM(object):
                 stddev = (top_action_candidates - mean.unsqueeze(1)).abs().sum(dim=1) / (self.num_elites - 1)
                 action_dist = Normal(mean, stddev)
 
-        # return only first action
-        action = mean[0]
+            # return only first action
+            action = mean[0]
+            expl_std = torch.sqrt(torch.as_tensor(self.exploration_noise_var, device=self.device))
 
-        # update rnn hidden state for next step planning
-        with torch.no_grad():
+            # exploration
+            if exploration:
+                action += torch.normal(0., expl_std, size=(self.action_dim,))
+
+            # update rnn hidden state for next step planning
             _, self.rnn_hidden = self.rssm.prior(state_posterior.sample(),
                                                  action.unsqueeze(0),
                                                  self.rnn_hidden)
 
-        # exploration
         action = action.cpu().numpy()
-        if exploration:
-            action += np.random.normal(0, np.sqrt(self.exploration_noise_var), self.action_dim)
-
         return action
 
     def reset(self):

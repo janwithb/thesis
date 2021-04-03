@@ -11,35 +11,33 @@ from utils.sampler import Sampler
 
 
 class DreamerMPC(DreamerBase):
-    def __init__(self, env, logger, replay_buffer, device, args):
-        super().__init__(logger, replay_buffer, device, args)
+    def __init__(self, env, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        self.args = args
-
-        if args.controller_type == 'random_shooting':
-            self.agent = RandomShooting(device,
-                                        args.action_dim,
+        if self.args.controller_type == 'random_shooting':
+            self.agent = RandomShooting(self.device,
+                                        self.args.action_dim,
                                         self.observation_encoder,
                                         self.reward_model,
                                         self.rssm,
-                                        args.horizon,
-                                        args.num_control_samples,
-                                        args.exploration_noise_var)
-        elif args.controller_type == 'cem':
-            self.agent = CEM(device,
-                             args.action_dim,
+                                        self.args.horizon,
+                                        self.args.num_control_samples,
+                                        self.args.exploration_noise_var)
+        elif self.args.controller_type == 'cem':
+            self.agent = CEM(self.device,
+                             self.args.action_dim,
                              self.observation_encoder,
                              self.reward_model,
                              self.rssm,
-                             args.horizon,
-                             args.num_control_samples,
-                             args.max_iterations,
-                             args.num_elites,
-                             args.exploration_noise_var)
+                             self.args.horizon,
+                             self.args.num_control_samples,
+                             self.args.max_iterations,
+                             self.args.num_elites,
+                             self.args.exploration_noise_var)
         else:
             raise ValueError('unknown controller type')
 
-        self.sampler = Sampler(env, replay_buffer, self.agent)
+        self.sampler = Sampler(env, self.replay_buffer, self.agent)
 
     def train(self):
         episode = 0

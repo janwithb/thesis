@@ -5,7 +5,8 @@ import torch
 import numpy as np
 
 from dm_control import suite
-from algos.dreamer_value import DreamerValue
+
+from algos.dreamer_sac import DreamerSAC
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
@@ -33,19 +34,23 @@ def parse_args():
     parser.add_argument('--save_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer_dir', default='', type=str)
+    parser.add_argument('--sac_replay_buffer_capacity', default=100000, type=int)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
+    parser.add_argument('--model_iterations', default=1, type=int)
+    parser.add_argument('--sac_iterations', default=1, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
+    parser.add_argument('--sac_batch_size', default=1024, type=int)
+    parser.add_argument('--imagination_horizon', default=15, type=int)
 
     # evaluation
-    parser.add_argument('--eval_freq', default=10, type=int)
+    parser.add_argument('--eval_freq', default=1, type=int)
     parser.add_argument('--eval_episodes', default=1, type=int)
 
     # model
@@ -57,16 +62,32 @@ def parse_args():
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
 
-    # value
-    parser.add_argument('--imagination_horizon', default=15, type=int)
-    parser.add_argument('--value_lr', default=8e-5, type=float)
-    parser.add_argument('--value_eps', default=1e-4, type=float)
-    parser.add_argument('--gamma', default=0.99, type=float)
-    parser.add_argument('--lambda_', default=0.95, type=float)
+    # critic
+    parser.add_argument('--critic_hidden_dim', default=1024, type=int)
+    parser.add_argument('--critic_hidden_depth', default=2, type=int)
+    parser.add_argument('--critic_lr', default=1e-4, type=float)
+    parser.add_argument('--critic_beta_min', default=0.9, type=float)
+    parser.add_argument('--critic_beta_max', default=0.999, type=float)
+    parser.add_argument('--critic_tau', default=0.005, type=float)
+    parser.add_argument('--critic_target_update_frequency', default=2, type=int)
+    parser.add_argument('--discount', default=0.99, type=float)
 
-    # action
-    parser.add_argument('--action_lr', default=8e-5, type=float)
-    parser.add_argument('--action_eps', default=1e-4, type=float)
+    # actor
+    parser.add_argument('--actor_hidden_dim', default=1024, type=int)
+    parser.add_argument('--actor_hidden_depth', default=2, type=int)
+    parser.add_argument('--log_std_min', default=-5, type=int)
+    parser.add_argument('--log_std_max', default=2, type=int)
+    parser.add_argument('--actor_lr', default=1e-4, type=float)
+    parser.add_argument('--actor_beta_min', default=0.9, type=float)
+    parser.add_argument('--actor_beta_max', default=0.999, type=float)
+    parser.add_argument('--actor_update_frequency', default=1, type=int)
+
+    # alpha
+    parser.add_argument('--alpha_lr', default=1e-4, type=float)
+    parser.add_argument('--alpha_beta_min', default=0.9, type=float)
+    parser.add_argument('--alpha_beta_max', default=0.999, type=float)
+    parser.add_argument('--learnable_temperature', default=True, action='store_true')
+    parser.add_argument('--init_temperature', default=0.1, type=float)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)
@@ -140,7 +161,7 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     # algorithm
-    algorithm = DreamerValue(env, logger, replay_buffer, device, args)
+    algorithm = DreamerSAC(env, logger, replay_buffer, device, args)
 
     # load model
     if args.load_model:

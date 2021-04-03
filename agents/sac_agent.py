@@ -1,12 +1,13 @@
 import torch
 
 
-class PolicyAgent(object):
-    def __init__(self, device, rssm, observation_encoder, action_model):
+class SACAgent(object):
+    def __init__(self, device, action_range, rssm, observation_encoder, actor):
         self.device = device
+        self.action_range = action_range
         self.rssm = rssm
         self.observation_encoder = observation_encoder
-        self.action_model = action_model
+        self.actor = actor
         self.rnn_hidden = torch.zeros(1, rssm.rnn_hidden_dim, device=device)
 
     def get_action(self, obs, exploration=False):
@@ -18,7 +19,15 @@ class PolicyAgent(object):
             embedded_obs = self.observation_encoder(obs)
             state_posterior = self.rssm.posterior(self.rnn_hidden, embedded_obs)
             state = state_posterior.sample()
-            action = self.action_model(state, self.rnn_hidden, exploration=exploration)
+            feature = torch.cat([state, self.rnn_hidden], dim=1)
+            dist = self.actor(feature)
+
+            # exploration
+            if exploration:
+                action = dist.sample()
+            else:
+                action = dist.mean
+            action = action.clamp(*self.action_range)
 
             # update rnn_hidden for next step
             _, self.rnn_hidden = self.rssm.prior(state, action, self.rnn_hidden)
@@ -28,20 +37,3 @@ class PolicyAgent(object):
 
     def reset(self):
         self.rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
-
-
-def policy(self, state, sample=False):
-    feat = get_feat(state)
-    dist = self.actor(feat)
-    action = dist.sample() if sample else dist.mean
-    action = action.clamp(*self.action_range)
-    return action, dist
-
-
-def exploration_policy(self, state):
-    if self.training:
-        action, _ = self.policy(state, sample=True)
-    elif self.eval:
-        action, _ = self.policy(state)
-    action = np.squeeze(action.detach().cpu().numpy(), axis=0)
-    return action

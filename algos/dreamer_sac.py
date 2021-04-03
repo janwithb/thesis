@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from torch.nn import functional as F
 
-from agents.policy_agent import PolicyAgent
+from agents.sac_agent import SACAgent
 from algos.dreamer_base import DreamerBase
 from models.critic_model import DoubleQCritic
 from models.sac_actor_model import DiagGaussianActor
@@ -16,40 +16,43 @@ from utils.sampler import Sampler
 
 
 class DreamerSAC(DreamerBase):
-    def __init__(self, env, logger, replay_buffer, device, args):
-        super().__init__(logger, replay_buffer, device, args)
-        self.args = args
+    def __init__(self, env, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.sac_itr = 0
+        self.log_std_bounds = [self.args.log_std_min, self.args.log_std_max]
+        self.actor_betas = (self.args.actor_beta_min, self.args.actor_beta_max)
+        self.critic_betas = (self.args.critic_beta_min, self.args.critic_beta_max)
+        self.alpha_betas = (self.args.alpha_beta_min, self.args.alpha_beta_max)
 
         self.sac_replay_buffer = ReplayBuffer(
-            args.feature_size,
-            args.action_dim,
-            args.sac_replay_buffer_capacity,
+            self.feature_size,
+            self.args.action_dim,
+            self.args.sac_replay_buffer_capacity,
             self.device
         )
 
         # critic model
         self.critic = DoubleQCritic(self.feature_size,
-                                    args.action_dim,
-                                    args.critic_hidden,
-                                    args.critic_layers)
+                                    self.args.action_dim,
+                                    self.args.critic_hidden_dim,
+                                    self.args.critic_hidden_depth)
 
         # actor target model
         self.critic_target = DoubleQCritic(self.feature_size,
-                                           args.action_dim,
-                                           args.critic_hidden,
-                                           args.critic_layers)
+                                           self.args.action_dim,
+                                           self.args.critic_hidden_dim,
+                                           self.args.critic_hidden_depth)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # actor model
         self.actor = DiagGaussianActor(self.feature_size,
-                                       args.action_dim,
-                                       args.actor_hidden,
-                                       args.actor_layers,
-                                       args.log_std_bounds)
+                                       self.args.action_dim,
+                                       self.args.actor_hidden_dim,
+                                       self.args.actor_hidden_depth,
+                                       self.log_std_bounds)
 
         # log_alpha model
-        self.log_alpha = torch.tensor(np.log(args.init_temperature))
+        self.log_alpha = torch.tensor(np.log(self.args.init_temperature))
         self.log_alpha.requires_grad = True
 
         # gpu settings
@@ -59,31 +62,31 @@ class DreamerSAC(DreamerBase):
         self.log_alpha.to(self.device)
 
         # set target entropy
-        self.target_entropy = -args.action_dim
+        self.target_entropy = -self.args.action_dim
 
         # actor optimizer
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(),
-            lr=args.actor_lr,
-            betas=args.actor_betas
+            lr=self.args.actor_lr,
+            betas=self.actor_betas
         )
 
         # critic optimizer
         self.critic_optimizer = torch.optim.Adam(
             self.critic.parameters(),
-            lr=args.critic_lr,
-            betas=args.critic_betas
+            lr=self.args.critic_lr,
+            betas=self.critic_betas
         )
 
         # log_alpha optimizer
         self.log_alpha_optimizer = torch.optim.Adam(
             [self.log_alpha],
-            lr=args.alpha_lr,
-            betas=args.alpha_betas
+            lr=self.args.alpha_lr,
+            betas=self.alpha_betas
         )
 
-        self.agent = PolicyAgent(self.device, self.rssm, self.observation_encoder, self.action_model)
-        self.sampler = Sampler(env, replay_buffer, self.agent)
+        self.agent = SACAgent(self.device, self.args.action_range, self.rssm, self.observation_encoder, self.actor)
+        self.sampler = Sampler(env, self.replay_buffer, self.agent)
 
     @property
     def alpha(self):
@@ -123,7 +126,7 @@ class DreamerSAC(DreamerBase):
 
             # model training loop
             for _ in range(self.args.sac_iterations):
-                self.optimize_sac(self.sac_replay_buffer, args.sac_batch_size)
+                self.optimize_sac(self.sac_replay_buffer, self.args.sac_batch_size)
 
             # save model frequently
             if self.args.save_iter_model and episode % self.args.save_iter_model_freq == 0:
@@ -150,34 +153,37 @@ class DreamerSAC(DreamerBase):
                 self.logger.log('eval/eval_time', eval_time, episode)
                 self.logger.log_video('eval/ep_video', video, episode)
 
-    def update_sac_replay_buffer(self, post):
-        # remove gradients from tensors
+    def update_sac_replay_buffer(self, flatten_states, flatten_rnn_hiddens):
         with torch.no_grad():
-            flat_post = flatten_rssm_state(post)
-            flat_post_feat = get_feat(flat_post)
+            flatten_states = flatten_states.detach()
+            flatten_rnn_hiddens = flatten_rnn_hiddens.detach()
 
-            # imagine trajectories
-            imag_dist, actions = self.rollout.rollout_policy(self.imagine_horizon, self.policy, flat_post)
+            # prepare tensor to maintain imagined trajectory's states and rnn_hiddens
+            imagined_states = torch.zeros(self.args.imagination_horizon + 1,
+                                          *flatten_states.shape,
+                                          device=flatten_states.device)
+            imagined_rnn_hiddens = torch.zeros(self.args.imagination_horizon + 1,
+                                               *flatten_rnn_hiddens.shape,
+                                               device=flatten_rnn_hiddens.device)
+            imagined_states[0] = flatten_states
+            imagined_rnn_hiddens[0] = flatten_rnn_hiddens
 
-            # Use state features (deterministic and stochastic) to predict the image and reward
-            imag_feat = get_feat(imag_dist)  # [horizon, batch_t * batch_b, feature_size]
-
-            # freeze model parameters as only action model gradients needed
-            imag_reward = self.reward_model(imag_feat).mean
-
-        # add imagined transitions to replay buffer
-        for i in range(len(imag_feat)):
-            state_batch = imag_feat[i]
-            reward_batch = imag_reward[i]
-            actions_batch = actions[i]
-            obs = flat_post_feat[i]
-            for j in range(len(state_batch)):
-                next_obs = state_batch[j]
-                reward = reward_batch[j]
-                action = actions_batch[j]
-                self.sac_replay_buffer.add(obs.detach(), action.detach(), reward.detach(), next_obs.detach(), False,
-                                           False)
-                obs = next_obs
+            # compute imagined trajectory using action from action_model
+            for h in range(1, self.args.imagination_horizon + 1):
+                features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
+                dist = self.actor(features)
+                actions = dist.sample()
+                actions = actions.clamp(*self.args.action_range)
+                flatten_states_prior, flatten_rnn_hiddens = self.rssm.prior(flatten_states, actions,
+                                                                            flatten_rnn_hiddens)
+                flatten_states = flatten_states_prior.rsample()
+                imagined_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
+                for i in range(flatten_states.size(0)):
+                    obs = features[i]
+                    action = actions[i]
+                    reward = imagined_rewards[i]
+                    next_obs = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)[i]
+                    self.sac_replay_buffer.add(obs, action, reward, next_obs, False, False)
 
     def optimize_sac(self, replay_buffer, sac_batch_size):
         # sample transition
@@ -206,7 +212,7 @@ class DreamerSAC(DreamerBase):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        if self.args.full_tb_log and self.sac_itr % self.args.tensorboard_log_freq == 0:
+        if self.args.full_tb_log and self.sac_itr % self.args.model_log_freq == 0:
             self.critic.log(self.logger, self.sac_itr)
 
     def optimize_actor(self, obs):
@@ -218,7 +224,7 @@ class DreamerSAC(DreamerBase):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        if self.args.full_tb_log and self.sac_itr % self.args.tensorboard_log_freq == 0:
+        if self.args.full_tb_log and self.sac_itr % self.args.model_log_freq == 0:
             self.actor.log(self.logger, self.sac_itr)
         return log_prob
 
@@ -247,7 +253,7 @@ class DreamerSAC(DreamerBase):
             current_Q2, target_Q)
 
         # log losses
-        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+        if self.sac_itr % self.args.model_log_freq == 0:
             self.logger.log('train_critic/critic_loss', critic_loss, self.sac_itr)
         return critic_loss
 
@@ -261,7 +267,7 @@ class DreamerSAC(DreamerBase):
         actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
 
         # log losses
-        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+        if self.sac_itr % self.args.model_log_freq == 0:
             self.logger.log('train_actor/actor_loss', actor_loss, self.sac_itr)
             self.logger.log('train_actor/target_entropy', self.target_entropy, self.sac_itr)
             self.logger.log('train_actor/entropy', -log_prob.mean(), self.sac_itr)
@@ -271,7 +277,7 @@ class DreamerSAC(DreamerBase):
         alpha_loss = (self.alpha * (-log_prob - self.target_entropy).detach()).mean()
 
         # log losses
-        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+        if self.sac_itr % self.args.model_log_freq == 0:
             self.logger.log('train_alpha/value_loss', alpha_loss, self.sac_itr)
             self.logger.log('train_alpha/value', self.alpha, self.sac_itr)
         return alpha_loss
