@@ -1,108 +1,55 @@
 import os
 import time
-
-import numpy as np
 import torch
-import torch.nn.functional as F
+import numpy as np
 
 from tqdm import tqdm
+from torch.nn import functional as F
+
+from agents.policy_agent import PolicyAgent
 from algos.dreamer_base import DreamerBase
-from models.critic import DoubleQCritic
-from models.rssm import get_feat
-from models.sac_actor import DiagGaussianActor
-from utils.misc import flatten_rssm_state, soft_update_params
+from models.critic_model import DoubleQCritic
+from models.sac_actor_model import DiagGaussianActor
+from utils.misc import soft_update_params
 from utils.replay_buffer import ReplayBuffer
+from utils.sampler import Sampler
 
 
 class DreamerSAC(DreamerBase):
-    def __init__(self,
-                 logger=None,
-                 sampler=None,
-                 replay_buffer=None,
-                 device=None,
-                 action_space=None,
-                 tensorboard_log_freq=1000,
-                 image_shape=None,
-                 action_shape=None,
-                 reward_shape=None,
-                 stochastic_size=200,
-                 deterministic_size=30,
-                 reward_layers=3,
-                 reward_hidden=200,
-                 model_lr=6e-4,
-                 grad_clip=100.0,
-                 free_nats=3,
-                 kl_scale=1,
-                 action_repeat=1,
-                 representation_loss='contrastive',
-                 random_crop_size=64,
-                 sac_replay_buffer_capacity=100000,
-                 discount=0.99,
-                 imagine_horizon=15,
-                 learnable_temperature=True,
-                 critic_tau=0.005,
-                 critic_hidden=1024,
-                 critic_layers=2,
-                 critic_lr=1e-4,
-                 critic_betas=None,
-                 critic_target_update_frequency=2,
-                 actor_update_frequency=1,
-                 actor_hidden=1024,
-                 actor_layers=2,
-                 actor_lr=1e-4,
-                 actor_betas=None,
-                 log_std_bounds=None,
-                 init_temperature=0.1,
-                 alpha_lr=1e-4,
-                 alpha_betas=None):
-
-        super().__init__(logger=logger,
-                         sampler=sampler,
-                         replay_buffer=replay_buffer,
-                         device=device,
-                         tensorboard_log_freq=tensorboard_log_freq,
-                         image_shape=image_shape,
-                         action_shape=action_shape,
-                         reward_shape=reward_shape,
-                         stochastic_size=stochastic_size,
-                         deterministic_size=deterministic_size,
-                         reward_layers=reward_layers,
-                         reward_hidden=reward_hidden,
-                         model_lr=model_lr,
-                         grad_clip=grad_clip,
-                         free_nats=free_nats,
-                         kl_scale=kl_scale,
-                         action_repeat=action_repeat,
-                         representation_loss=representation_loss,
-                         random_crop_size=random_crop_size)
+    def __init__(self, env, logger, replay_buffer, device, args):
+        super().__init__(logger, replay_buffer, device, args)
+        self.args = args
+        self.sac_itr = 0
 
         self.sac_replay_buffer = ReplayBuffer(
-            self.feature_size,
-            self.action_size,
-            sac_replay_buffer_capacity,
+            args.feature_size,
+            args.action_dim,
+            args.sac_replay_buffer_capacity,
             self.device
         )
 
-        self.discount = discount
-        self.imagine_horizon = imagine_horizon
-        self.critic_tau = critic_tau
-        self.actor_update_frequency = actor_update_frequency
-        self.critic_target_update_frequency = critic_target_update_frequency
-        self.learnable_temperature = learnable_temperature
-        self.sac_itr = 0
-
         # critic model
-        self.critic = DoubleQCritic(self.feature_size, self.action_size, critic_hidden, critic_layers)
+        self.critic = DoubleQCritic(self.feature_size,
+                                    args.action_dim,
+                                    args.critic_hidden,
+                                    args.critic_layers)
 
         # actor target model
-        self.critic_target = DoubleQCritic(self.feature_size, self.action_size, critic_hidden, critic_layers)
+        self.critic_target = DoubleQCritic(self.feature_size,
+                                           args.action_dim,
+                                           args.critic_hidden,
+                                           args.critic_layers)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # actor model
-        self.actor = DiagGaussianActor(self.feature_size, self.action_size, actor_hidden, actor_layers, log_std_bounds)
+        self.actor = DiagGaussianActor(self.feature_size,
+                                       args.action_dim,
+                                       args.actor_hidden,
+                                       args.actor_layers,
+                                       args.log_std_bounds)
 
         # log_alpha model
-        self.log_alpha = torch.tensor(np.log(init_temperature))
+        self.log_alpha = torch.tensor(np.log(args.init_temperature))
         self.log_alpha.requires_grad = True
 
         # gpu settings
@@ -112,106 +59,96 @@ class DreamerSAC(DreamerBase):
         self.log_alpha.to(self.device)
 
         # set target entropy
-        self.target_entropy = -self.action_size
-
-        # define action range
-        self.action_range = [
-            float(action_space.low.min()),
-            float(action_space.high.max())
-        ]
+        self.target_entropy = -args.action_dim
 
         # actor optimizer
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(),
-            lr=actor_lr,
-            betas=actor_betas
+            lr=args.actor_lr,
+            betas=args.actor_betas
         )
 
         # critic optimizer
         self.critic_optimizer = torch.optim.Adam(
             self.critic.parameters(),
-            lr=critic_lr,
-            betas=critic_betas
+            lr=args.critic_lr,
+            betas=args.critic_betas
         )
 
         # log_alpha optimizer
         self.log_alpha_optimizer = torch.optim.Adam(
             [self.log_alpha],
-            lr=alpha_lr,
-            betas=alpha_betas
+            lr=args.alpha_lr,
+            betas=args.alpha_betas
         )
+
+        self.agent = PolicyAgent(self.device, self.rssm, self.observation_encoder, self.action_model)
+        self.sampler = Sampler(env, replay_buffer, self.agent)
 
     @property
     def alpha(self):
         return self.log_alpha.exp()
 
-    def train(self,
-              init_episodes=100,
-              init_episode_length=100,
-              iter_episodes=10,
-              iter_episode_length=100,
-              training_iterations=100,
-              model_iterations=100,
-              sac_iterations=100,
-              batch_size=64,
-              chunk_size=50,
-              sac_batch_size=64,
-              render_training=False,
-              save_iter_model=False,
-              save_iter_model_freq=10,
-              model_dir=None,
-              eval_freq=1,
-              eval_episodes=5,
-              eval_episode_length=100,
-              render_eval=False,
-              save_eval_video=False,
-              video_dir=None):
+    def train(self):
+        episode = 0
 
         # collect initial episodes
-        episodes, total_steps = self.sampler.collect_random_episodes(init_episodes, init_episode_length,
-                                                                     render=render_training)
-        self.replay_buffer.add(episodes)
-        self.step += total_steps * self.action_repeat
+        _, _, _, all_episode_rewards = self.sampler.collect_episodes(self.args.init_episodes,
+                                                                     random=True,
+                                                                     render=self.args.render_training)
+        episode += self.args.init_episodes
+        mean_ep_reward = np.mean(all_episode_rewards)
+        best_ep_reward = np.max(all_episode_rewards)
+        self.logger.log('train/mean_ep_reward', mean_ep_reward, episode)
+        self.logger.log('train/best_ep_reward', best_ep_reward, episode)
 
         # main training loop
-        for it in tqdm(range(training_iterations), desc='Training progress'):
+        for it in tqdm(range(self.args.training_iterations), desc='Training progress'):
             itr_start_time = time.time()
-            self.set_mode('train')
+
+            # collect experience on policy
+            _, _, _, all_episode_rewards = self.sampler.collect_episodes(self.args.agent_episodes,
+                                                                         exploration=True,
+                                                                         render=self.args.render_training)
+            episode += self.args.agent_episodes
+            mean_ep_reward = np.mean(all_episode_rewards)
+            best_ep_reward = np.max(all_episode_rewards)
+            self.logger.log('train/mean_ep_reward', mean_ep_reward, episode)
+            self.logger.log('train/best_ep_reward', best_ep_reward, episode)
 
             # model training loop
-            for _ in tqdm(range(model_iterations), desc='Model Training'):
-                samples = self.replay_buffer.get_chunk_batch(batch_size, chunk_size)
-                post = self.optimize_model(samples)
-                self.update_sac_replay_buffer(post)
-                self.model_itr += 1
+            for _ in range(self.args.model_iterations):
+                flatten_states, flatten_rnn_hiddens = self.optimize_model()
+                self.update_sac_replay_buffer(flatten_states, flatten_rnn_hiddens)
 
-            # SAC training loop
-            for _ in tqdm(range(sac_iterations), desc='SAC Training'):
-                self.optimize_sac(self.sac_replay_buffer, sac_batch_size)
-                self.sac_itr += 1
-
-            # collect new data
-            episodes, total_steps = self.sampler.collect_policy_episodes(iter_episodes, iter_episode_length,
-                                                                         self.exploration_policy,
-                                                                         self.get_state_representation,
-                                                                         self.device,
-                                                                         render=render_training)
-
-            self.replay_buffer.add(episodes)
-            self.step += total_steps * self.action_repeat
+            # model training loop
+            for _ in range(self.args.sac_iterations):
+                self.optimize_sac(self.sac_replay_buffer, args.sac_batch_size)
 
             # save model frequently
-            if save_iter_model and it % save_iter_model_freq == 0:
-                self.save_model(model_dir, 'model_iter_' + str(it))
+            if self.args.save_iter_model and episode % self.args.save_iter_model_freq == 0:
+                self.save_model(episode, 'model_iter_' + str(episode))
 
             itr_time = time.time() - itr_start_time
-            self.logger.log('train/itr_time', itr_time, self.step)
-            self.itr += 1
+            self.logger.log('train/itr_time', itr_time, episode)
 
             # evaluate policy
-            if it % eval_freq == 0:
-                self.evaluate(eval_episodes, eval_episode_length, self.exploration_policy,
-                              save_eval_video, video_dir, render_eval)
+            if it % self.args.eval_freq == 0:
+                eval_start_time = time.time()
+
+                # collect experience on policy
+                actions, obs, _, all_episode_rewards = self.sampler.collect_episodes(self.args.eval_episodes,
+                                                                                     render=self.args.render_training)
+                mean_ep_reward = np.mean(all_episode_rewards)
+                best_ep_reward = np.max(all_episode_rewards)
+                video = self.get_video(actions, obs)
+
+                # log results
+                eval_time = time.time() - eval_start_time
+                self.logger.log('eval/mean_ep_reward', mean_ep_reward, episode)
+                self.logger.log('eval/best_ep_reward', best_ep_reward, episode)
+                self.logger.log('eval/eval_time', eval_time, episode)
+                self.logger.log_video('eval/ep_video', video, episode)
 
     def update_sac_replay_buffer(self, post):
         # remove gradients from tensors
@@ -238,7 +175,8 @@ class DreamerSAC(DreamerBase):
                 next_obs = state_batch[j]
                 reward = reward_batch[j]
                 action = actions_batch[j]
-                self.sac_replay_buffer.add(obs.detach(), action.detach(), reward.detach(), next_obs.detach(), False, False)
+                self.sac_replay_buffer.add(obs.detach(), action.detach(), reward.detach(), next_obs.detach(), False,
+                                           False)
                 obs = next_obs
 
     def optimize_sac(self, replay_buffer, sac_batch_size):
@@ -249,15 +187,15 @@ class DreamerSAC(DreamerBase):
         self.optimize_critic(obs, action, reward, next_obs, not_done_no_max)
 
         # update actor
-        if self.sac_itr % self.actor_update_frequency == 0:
+        if self.sac_itr % self.args.actor_update_frequency == 0:
             log_prob = self.optimize_actor(obs)
-            if self.learnable_temperature:
+            if self.args.learnable_temperature:
                 self.optimize_alpha(log_prob)
 
         # soft update critic target
-        if self.sac_itr % self.critic_target_update_frequency == 0:
-            soft_update_params(self.critic, self.critic_target,
-                               self.critic_tau)
+        if self.sac_itr % self.args.critic_target_update_frequency == 0:
+            soft_update_params(self.critic, self.critic_target, self.args.critic_tau)
+        self.sac_itr += 1
 
     def optimize_critic(self, obs, action, reward, next_obs, not_done):
         # compute critic loss
@@ -268,8 +206,8 @@ class DreamerSAC(DreamerBase):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.critic.log(self.logger, self.step)
+        if self.args.full_tb_log and self.sac_itr % self.args.tensorboard_log_freq == 0:
+            self.critic.log(self.logger, self.sac_itr)
 
     def optimize_actor(self, obs):
         # compute critic loss
@@ -280,8 +218,8 @@ class DreamerSAC(DreamerBase):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.actor.log(self.logger, self.step)
+        if self.args.full_tb_log and self.sac_itr % self.args.tensorboard_log_freq == 0:
+            self.actor.log(self.logger, self.sac_itr)
         return log_prob
 
     def optimize_alpha(self, log_prob):
@@ -300,7 +238,7 @@ class DreamerSAC(DreamerBase):
         target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
         target_V = torch.min(target_Q1,
                              target_Q2) - self.alpha.detach() * log_prob
-        target_Q = reward + (not_done * self.discount * target_V)
+        target_Q = reward + (not_done * self.args.discount * target_V)
         target_Q = target_Q.detach()
 
         # get current Q estimates
@@ -309,8 +247,8 @@ class DreamerSAC(DreamerBase):
             current_Q2, target_Q)
 
         # log losses
-        if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_critic/critic_loss', critic_loss, self.step)
+        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+            self.logger.log('train_critic/critic_loss', critic_loss, self.sac_itr)
         return critic_loss
 
     def actor_loss(self, obs):
@@ -323,47 +261,56 @@ class DreamerSAC(DreamerBase):
         actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
 
         # log losses
-        if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_actor/actor_loss', actor_loss, self.step)
-            self.logger.log('train_actor/target_entropy', self.target_entropy, self.step)
-            self.logger.log('train_actor/entropy', -log_prob.mean(), self.step)
+        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+            self.logger.log('train_actor/actor_loss', actor_loss, self.sac_itr)
+            self.logger.log('train_actor/target_entropy', self.target_entropy, self.sac_itr)
+            self.logger.log('train_actor/entropy', -log_prob.mean(), self.sac_itr)
         return actor_loss, log_prob
 
     def alpha_loss(self, log_prob):
         alpha_loss = (self.alpha * (-log_prob - self.target_entropy).detach()).mean()
 
         # log losses
-        if self.sac_itr % self.tensorboard_log_freq == 0:
-            self.logger.log('train_alpha/value_loss', alpha_loss, self.step)
-            self.logger.log('train_alpha/value', self.alpha, self.step)
+        if self.sac_itr % self.args.tensorboard_log_freq == 0:
+            self.logger.log('train_alpha/value_loss', alpha_loss, self.sac_itr)
+            self.logger.log('train_alpha/value', self.alpha, self.sac_itr)
         return alpha_loss
 
-    def policy(self, state, sample=False):
-        feat = get_feat(state)
-        dist = self.actor(feat)
-        action = dist.sample() if sample else dist.mode
-        action = action.clamp(*self.action_range)
-        return action, dist
+    def get_video(self, actions, obs):
+        with torch.no_grad():
+            observations = torch.as_tensor(obs, device=self.device).transpose(0, 1)
+            ground_truth = observations + 0.5
+            ground_truth = ground_truth.squeeze(1).unsqueeze(0)
+            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
 
-    def exploration_policy(self, state):
-        if self.training:
-            action, _ = self.policy(state, sample=True)
-        elif self.eval:
-            action, _ = self.policy(state)
-        action = np.squeeze(action.detach().cpu().numpy(), axis=0)
-        return action
+            # embed observations
+            embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
+
+            # initialize rnn hidden state
+            rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
+
+            # imagine trajectory
+            imagined = []
+            state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
+            for action in actions:
+                state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
+                state = state_prior.sample()
+                predicted_obs = self.observation_decoder(state, rnn_hidden)
+                imagined.append(predicted_obs)
+            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
+            video = torch.cat((ground_truth, imagined), dim=0)
+        return video
 
     def save_model(self, model_path, model_name):
         torch.save({
             'observation_encoder_state_dict': self.observation_encoder.state_dict(),
             'observation_decoder_state_dict': self.observation_decoder.state_dict(),
             'reward_model_state_dict': self.reward_model.state_dict(),
-            'representation_state_dict': self.representation.state_dict(),
-            'transition_state_dict': self.transition.state_dict(),
+            'rssm_state_dict': self.rssm.state_dict(),
             'critic_state_dict': self.critic.state_dict(),
             'critic_target_state_dict': self.critic_target.state_dict(),
             'actor_state_dict': self.actor.state_dict(),
-            'log_alpha_state_dict': self.log_alpha.state_dict()
+            'log_alpha': self.log_alpha
         }, os.path.join(model_path, model_name))
 
     def load_model(self, model_path):
@@ -371,9 +318,9 @@ class DreamerSAC(DreamerBase):
         self.observation_encoder.load_state_dict(checkpoint['observation_encoder_state_dict'])
         self.observation_decoder.load_state_dict(checkpoint['observation_decoder_state_dict'])
         self.reward_model.load_state_dict(checkpoint['reward_model_state_dict'])
-        self.representation.load_state_dict(checkpoint['representation_state_dict'])
-        self.transition.load_state_dict(checkpoint['transition_state_dict'])
+        self.rssm.load_state_dict(checkpoint['rssm_state_dict'])
         self.critic.load_state_dict(checkpoint['critic_state_dict'])
         self.critic_target.load_state_dict(checkpoint['critic_target_state_dict'])
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.log_alpha.load_state_dict(checkpoint['log_alpha_state_dict'])
+        self.log_alpha = checkpoint['log_alpha_state_dict']
+

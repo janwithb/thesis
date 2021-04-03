@@ -7,10 +7,10 @@ from torch.nn.utils import clip_grad_norm_
 
 from tqdm import tqdm
 
-from agents.policy import PolicyAgent
+from agents.policy_agent import PolicyAgent
 from algos.dreamer_base import DreamerBase
-from models.action import ActionModel
-from models.value import ValueModel
+from models.action_model import ActionModel
+from models.value_model import ValueModel
 from utils.misc import lambda_target
 from utils.sampler import Sampler
 
@@ -19,8 +19,6 @@ class DreamerValue(DreamerBase):
     def __init__(self, env, logger, replay_buffer, device, args):
         super().__init__(logger, replay_buffer, device, args)
         self.args = args
-
-        torch.autograd.set_detect_anomaly(True)
 
         # value model
         self.value_model = ValueModel(self.feature_size)
@@ -42,7 +40,12 @@ class DreamerValue(DreamerBase):
                                                        lr=args.action_lr,
                                                        eps=args.action_eps)
 
-        self.agent = PolicyAgent(self.device, self.rssm, self.observation_encoder, self.action_model)
+        self.agent = PolicyAgent(self.device,
+                                 args.action_dim,
+                                 self.rssm,
+                                 self.observation_encoder,
+                                 self.action_model,
+                                 args.exploration_noise_var)
         self.sampler = Sampler(env, replay_buffer, self.agent)
 
     def train(self):

@@ -1,9 +1,9 @@
 import torch
 
-from models.decoder import ObservationDecoder
-from models.encoder import ObservationEncoder
-from models.reward import RewardModel
-from models.rssm import RecurrentStateSpaceModel
+from models.decoder_model import ObservationDecoder
+from models.encoder_model import ObservationEncoder
+from models.reward_model import RewardModel
+from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
@@ -56,6 +56,7 @@ class DreamerBase:
         model_loss.backward()
         clip_grad_norm_(self.model_params, self.args.grad_clip)
         self.model_optimizer.step()
+        self.model_itr += 1
 
         if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
             self.observation_encoder.log(self.logger, self.model_itr)
@@ -116,7 +117,6 @@ class DreamerBase:
 
         # add all losses and update model parameters with gradient descent
         model_loss = self.args.kl_scale * kl_loss + obs_loss + reward_loss
-        self.model_itr += 1
 
         # log losses
         with torch.no_grad():

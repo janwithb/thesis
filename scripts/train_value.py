@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument('--stochastic_size', default=30, type=int)
     parser.add_argument('--deterministic_size', default=200, type=int)
     parser.add_argument('--reward_hidden_dim', default=300, type=int)
-    parser.add_argument('--model_lr', default=1e-3, type=float)
+    parser.add_argument('--model_lr', default=6e-4, type=float)
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
@@ -67,6 +67,9 @@ def parse_args():
     # action
     parser.add_argument('--action_lr', default=8e-5, type=float)
     parser.add_argument('--action_eps', default=1e-4, type=float)
+
+    # agent
+    parser.add_argument('--exploration_noise_var', type=float, default=0.3)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)

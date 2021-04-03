@@ -5,8 +5,8 @@ import numpy as np
 
 from tqdm import tqdm
 from algos.dreamer_base import DreamerBase
-from agents.cem import CEM
-from agents.random_shooting import RandomShooting
+from agents.cem_agent import CEM
+from agents.random_shooting_agent import RandomShooting
 from utils.sampler import Sampler
 
 
