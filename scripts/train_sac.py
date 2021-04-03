@@ -34,14 +34,14 @@ def parse_args():
     parser.add_argument('--save_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer_dir', default='', type=str)
-    parser.add_argument('--sac_replay_buffer_capacity', default=100000, type=int)
+    parser.add_argument('--sac_replay_buffer_capacity', default=1000000, type=int)
 
     # train
-    parser.add_argument('--init_episodes', default=1, type=int)
+    parser.add_argument('--init_episodes', default=5, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=1, type=int)
-    parser.add_argument('--sac_iterations', default=1, type=int)
+    parser.add_argument('--model_iterations', default=100, type=int)
+    parser.add_argument('--sac_iterations', default=1000, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--imagination_horizon', default=15, type=int)
 
     # evaluation
-    parser.add_argument('--eval_freq', default=1, type=int)
+    parser.add_argument('--eval_freq', default=10, type=int)
     parser.add_argument('--eval_episodes', default=1, type=int)
 
     # model
