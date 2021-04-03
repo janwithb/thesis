@@ -70,7 +70,7 @@ class RandomShooting(object):
 
             # exploration
             if exploration:
-                action += torch.normal(expl_mean, expl_std, size=(self.action_dim,))
+                action += torch.normal(expl_mean, expl_std, size=(self.action_dim,), device=self.device)
 
             # update rnn hidden state for next step planning
             _, self.rnn_hidden = self.rssm.prior(state_posterior.sample(),
