@@ -119,10 +119,9 @@ class DreamerBase:
         model_loss = self.args.kl_scale * kl_loss + obs_loss + reward_loss
 
         # log losses
-        with torch.no_grad():
-            if self.model_itr % self.args.model_log_freq == 0:
-                self.logger.log('train_model/observation_loss', obs_loss.item(), self.model_itr)
-                self.logger.log('train_model/reward_loss', reward_loss.item(), self.model_itr)
-                self.logger.log('train_model/kl_loss', kl_loss.item(), self.model_itr)
-                self.logger.log('train_model/overall_loss', model_loss.item(), self.model_itr)
+        if self.model_itr % self.args.model_log_freq == 0:
+            self.logger.log('train_model/observation_loss', obs_loss.item(), self.model_itr)
+            self.logger.log('train_model/reward_loss', reward_loss.item(), self.model_itr)
+            self.logger.log('train_model/kl_loss', kl_loss.item(), self.model_itr)
+            self.logger.log('train_model/overall_loss', model_loss.item(), self.model_itr)
         return model_loss, flatten_states, flatten_rnn_hiddens

@@ -106,18 +106,15 @@ class DreamerValue(DreamerBase):
 
     def optimize_value(self, flatten_states, flatten_rnn_hiddens):
         action_loss, value_loss = self.get_losses(flatten_states, flatten_rnn_hiddens)
+        self.value_model_optimizer.zero_grad()
+        value_loss.backward(retain_graph=True)
+        clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip)
+        self.value_model_optimizer.step()
 
         self.action_model_optimizer.zero_grad()
-        self.value_model_optimizer.zero_grad()
-
-        action_loss.backward(retain_graph=True)
-        value_loss.backward()
-
-        clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip)
+        action_loss.backward()
         clip_grad_norm_(self.action_model.parameters(), self.args.grad_clip)
-
         self.action_model_optimizer.step()
-        self.value_model_optimizer.step()
 
         if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
             self.action_model.log(self.logger, self.model_itr)
@@ -162,6 +159,11 @@ class DreamerValue(DreamerBase):
 
         # value loss
         value_loss = 0.5 * mse_loss(imagined_values, lambda_target_values.detach())
+
+        # log losses
+        if self.model_itr % self.args.model_log_freq == 0:
+            self.logger.log('train_action/action_loss', action_loss.item(), self.model_itr)
+            self.logger.log('train_value/value_loss', value_loss.item(), self.model_itr)
         return action_loss, value_loss
 
     def get_video(self, actions, obs):
