@@ -7,7 +7,7 @@ from torch.nn.utils import clip_grad_norm_
 
 from tqdm import tqdm
 
-from agents.policy_agent import PolicyAgent
+from agents.value_agent import PolicyAgent
 from algos.dreamer_base import DreamerBase
 from models.action_model import ActionModel
 from models.value_model import ValueModel
@@ -105,26 +105,25 @@ class DreamerValue(DreamerBase):
                 self.logger.log_video('eval/ep_video', video, episode)
 
     def optimize_value(self, flatten_states, flatten_rnn_hiddens):
-        value_loss, lambda_target_values = self.value_loss(flatten_states, flatten_rnn_hiddens)
+        action_loss, value_loss = self.get_losses(flatten_states, flatten_rnn_hiddens)
+
+        self.action_model_optimizer.zero_grad()
         self.value_model_optimizer.zero_grad()
 
-        action_loss = self.action_loss(lambda_target_values)
-        self.action_model_optimizer.zero_grad()
-
-        value_loss.backward(retain_graph=True)
-        action_loss.backward()
+        action_loss.backward(retain_graph=True)
+        value_loss.backward()
 
         clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip)
         clip_grad_norm_(self.action_model.parameters(), self.args.grad_clip)
 
-        self.value_model_optimizer.step()
         self.action_model_optimizer.step()
+        self.value_model_optimizer.step()
 
         if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
-            self.value_model.log(self.logger, self.model_itr)
             self.action_model.log(self.logger, self.model_itr)
+            self.value_model.log(self.logger, self.model_itr)
 
-    def value_loss(self, flatten_states, flatten_rnn_hiddens):
+    def get_losses(self, flatten_states, flatten_rnn_hiddens):
         # detach gradient because Dreamer doesn't update model with actor-critic loss
         flatten_states = flatten_states.detach()
         flatten_rnn_hiddens = flatten_rnn_hiddens.detach()
@@ -158,13 +157,12 @@ class DreamerValue(DreamerBase):
         # compute lambda target
         lambda_target_values = lambda_target(imagined_rewards, imagined_values, self.args.gamma, self.args.lambda_)
 
-        # update_value model
-        value_loss = 0.5 * mse_loss(imagined_values, lambda_target_values.detach())
-        return value_loss, lambda_target_values
-
-    def action_loss(self, lambda_target_values):
+        # action loss
         action_loss = -1 * (lambda_target_values.mean())
-        return action_loss
+
+        # value loss
+        value_loss = 0.5 * mse_loss(imagined_values, lambda_target_values.detach())
+        return action_loss, value_loss
 
     def get_video(self, actions, obs):
         with torch.no_grad():
