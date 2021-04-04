@@ -17,6 +17,7 @@ class ReplayBuffer(object):
         self.idx = 0
         self.last_save = 0
         self.full = False
+        self.full_idx = 0
 
     def __len__(self):
         return self.capacity if self.full else self.idx
@@ -30,9 +31,24 @@ class ReplayBuffer(object):
         self.not_dones_no_max[self.idx] = not done_no_max
         self.idx = (self.idx + 1) % self.capacity
         self.full = self.full or self.idx == 0
+        self.full_idx = self.capacity
+
+    def add_batch(self, obs, action, reward, next_obs, done, done_no_max):
+        batch_size = obs.shape[0]
+        self.obses[self.idx:self.idx + batch_size] = obs
+        self.actions[self.idx:self.idx + batch_size] = action
+        self.rewards[self.idx:self.idx + batch_size] = reward
+        self.next_obses[self.idx:self.idx + batch_size] = next_obs
+        self.not_dones[self.idx:self.idx + batch_size] = ~done
+        self.not_dones_no_max[self.idx:self.idx + batch_size] = ~done_no_max
+        self.idx = self.idx + batch_size
+        if self.idx >= self.capacity - batch_size:
+            self.full_idx = self.idx
+            self.idx = 0
+            self.full = True
 
     def sample(self, batch_size):
-        idxs = np.random.randint(0, self.capacity if self.full else self.idx, size=batch_size)
+        idxs = np.random.randint(0, self.full_idx if self.full else self.idx, size=batch_size)
         obses = self.obses[idxs]
         actions = self.actions[idxs]
         rewards = self.rewards[idxs]

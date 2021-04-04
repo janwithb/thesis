@@ -178,12 +178,10 @@ class DreamerSAC(DreamerBase):
                                                                             flatten_rnn_hiddens)
                 flatten_states = flatten_states_prior.rsample()
                 imagined_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
-                for i in range(flatten_states.size(0)):
-                    obs = features[i]
-                    action = actions[i]
-                    reward = imagined_rewards[i]
-                    next_obs = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)[i]
-                    self.sac_replay_buffer.add(obs, action, reward, next_obs, False, False)
+                next_features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
+                done = torch.zeros(imagined_rewards.shape, dtype=torch.bool)
+                done_no_max = torch.zeros(imagined_rewards.shape, dtype=torch.bool)
+                self.sac_replay_buffer.add_batch(features, actions, imagined_rewards, next_features, done, done_no_max)
 
     def optimize_sac(self, replay_buffer, sac_batch_size):
         # sample transition
