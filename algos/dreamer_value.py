@@ -11,7 +11,7 @@ from agents.value_agent import PolicyAgent
 from algos.dreamer_base import DreamerBase
 from models.action_model import ActionModel
 from models.value_model import ValueModel
-from utils.misc import lambda_target
+from utils.misc import lambda_target, center_crop_image
 from utils.sampler import Sampler
 
 
@@ -116,7 +116,7 @@ class DreamerValue(DreamerBase):
         clip_grad_norm_(self.action_model.parameters(), self.args.grad_clip)
         self.action_model_optimizer.step()
 
-        if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
+        if self.args.full_tb_log and (self.model_itr % self.args.model_log_freq == 0):
             self.action_model.log(self.logger, self.model_itr)
             self.value_model.log(self.logger, self.model_itr)
 
@@ -165,31 +165,6 @@ class DreamerValue(DreamerBase):
             self.logger.log('train_action/action_loss', action_loss.item(), self.model_itr)
             self.logger.log('train_value/value_loss', value_loss.item(), self.model_itr)
         return action_loss, value_loss
-
-    def get_video(self, actions, obs):
-        with torch.no_grad():
-            observations = torch.as_tensor(obs, device=self.device).transpose(0, 1)
-            ground_truth = observations + 0.5
-            ground_truth = ground_truth.squeeze(1).unsqueeze(0)
-            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
-
-            # embed observations
-            embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
-
-            # initialize rnn hidden state
-            rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
-
-            # imagine trajectory
-            imagined = []
-            state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
-            for action in actions:
-                state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
-                state = state_prior.sample()
-                predicted_obs = self.observation_decoder(state, rnn_hidden)
-                imagined.append(predicted_obs)
-            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
-            video = torch.cat((ground_truth, imagined), dim=0)
-        return video
 
     def save_model(self, model_path, model_name):
         torch.save({

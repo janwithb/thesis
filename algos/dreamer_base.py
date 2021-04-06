@@ -1,5 +1,8 @@
 import torch
+import numpy as np
 
+from torch import nn
+from models.curl_model import CURLModel
 from models.decoder_model import ObservationDecoder
 from models.encoder_model import ObservationEncoder
 from models.reward_model import RewardModel
@@ -7,6 +10,7 @@ from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
+from utils.misc import random_crop
 
 
 class DreamerBase:
@@ -32,11 +36,20 @@ class DreamerBase:
         # recurrent state space model
         self.rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
 
+        if self.args.image_loss_type == 'contrastive':
+            self.curl_model = CURLModel(self.feature_size)
+            self.cross_entropy_loss = nn.CrossEntropyLoss()
+
         # bundle model parameters
         self.model_params = (list(self.observation_encoder.parameters()) +
-                             list(self.observation_decoder.parameters()) +
                              list(self.reward_model.parameters()) +
                              list(self.rssm.parameters()))
+        if self.args.image_loss_type == 'reconstruction':
+            self.model_params = self.model_params + list(self.observation_decoder.parameters())
+        elif self.args.image_loss_type == 'contrastive':
+            self.model_params = self.model_params + list(self.curl_model.parameters())
+        else:
+            raise ValueError('unknown image loss type')
 
         # gpu settings
         self.observation_encoder.to(self.device)
@@ -58,36 +71,57 @@ class DreamerBase:
         self.model_optimizer.step()
         self.model_itr += 1
 
-        if self.args.full_tb_log and self.model_itr % self.args.model_log_freq == 0:
+        if self.args.full_tb_log and (self.model_itr % self.args.model_log_freq == 0):
             self.observation_encoder.log(self.logger, self.model_itr)
-            self.observation_decoder.log(self.logger, self.model_itr)
+            if self.args.image_loss_type == 'reconstruction':
+                self.observation_decoder.log(self.logger, self.model_itr)
             self.reward_model.log(self.logger, self.model_itr)
             self.rssm.log(self.logger, self.model_itr)
         return flatten_states, flatten_rnn_hiddens
 
     def model_loss(self):
         observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
+        observations_pos = observations.copy()
+
+        # augment images for contrastive loss
+        if self.args.image_loss_type == 'contrastive':
+            observations = random_crop(observations, 64)
+            observations_pos = random_crop(observations_pos, 64)
+
         observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
+        observations_pos = torch.as_tensor(observations_pos, device=self.device).transpose(0, 1)
         actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
         rewards = torch.as_tensor(rewards, device=self.device).transpose(0, 1)
 
         # embed observations
         embedded_observations = self.observation_encoder(observations.reshape(-1, 3, 64, 64))
         embedded_observations = embedded_observations.view(self.args.chunk_length, self.args.batch_size, -1)
+        embedded_observations_pos = self.observation_encoder(observations_pos.reshape(-1, 3, 64, 64))
+        embedded_observations_pos = embedded_observations_pos.view(self.args.chunk_length, self.args.batch_size, -1)
 
         # prepare Tensor to maintain states sequence and rnn hidden states sequence
         states = torch.zeros(self.args.chunk_length,
                              self.args.batch_size,
                              self.args.stochastic_size,
                              device=self.device)
+        states_pos = torch.zeros(self.args.chunk_length,
+                                 self.args.batch_size,
+                                 self.args.stochastic_size,
+                                 device=self.device)
         rnn_hiddens = torch.zeros(self.args.chunk_length,
                                   self.args.batch_size,
                                   self.args.deterministic_size,
                                   device=self.device)
+        rnn_hiddens_pos = torch.zeros(self.args.chunk_length,
+                                      self.args.batch_size,
+                                      self.args.deterministic_size,
+                                      device=self.device)
 
         # initialize state and rnn hidden state with 0 vector
         state = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
+        state_pos = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
         rnn_hidden = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
+        rnn_hidden_pos = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
 
         # compute state and rnn hidden sequences and kl loss
         kl_loss = 0
@@ -96,23 +130,39 @@ class DreamerBase:
                                                                            actions[l],
                                                                            rnn_hidden,
                                                                            embedded_observations[l + 1])
+            next_state_prior_pos, next_state_posterior_pos, rnn_hidden_pos = self.rssm(state_pos,
+                                                                                       actions[l],
+                                                                                       rnn_hidden_pos,
+                                                                                       embedded_observations_pos[l + 1])
             state = next_state_posterior.rsample()
+            state_pos = next_state_posterior_pos.rsample()
             states[l + 1] = state
+            states_pos[l + 1] = state_pos
             rnn_hiddens[l + 1] = rnn_hidden
+            rnn_hiddens_pos[l + 1] = rnn_hidden_pos
             kl = kl_divergence(next_state_prior, next_state_posterior).sum(dim=1)
             kl_loss += kl.clamp(min=self.args.free_nats).mean()
         kl_loss /= (self.args.chunk_length - 1)
 
         # compute reconstructed observations and predicted rewards
         flatten_states = states.view(-1, self.args.stochastic_size)
+        flatten_states_pos = states_pos.view(-1, self.args.stochastic_size)
         flatten_rnn_hiddens = rnn_hiddens.view(-1, self.args.deterministic_size)
+        flatten_rnn_hiddens_pos = rnn_hiddens_pos.view(-1, self.args.deterministic_size)
+        feature_anchor = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
+        feature_pos = torch.cat([flatten_states_pos, flatten_rnn_hiddens_pos], dim=1)
         recon_observations = self.observation_decoder(flatten_states, flatten_rnn_hiddens)
         recon_observations = recon_observations.view(self.args.chunk_length, self.args.batch_size, 3, 64, 64)
         predicted_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
         predicted_rewards = predicted_rewards.view(self.args.chunk_length, self.args.batch_size, 1)
 
         # compute loss for observation and reward
-        obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
+        if self.args.image_loss_type == 'reconstruction':
+            obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
+        elif self.args.image_loss_type == 'contrastive':
+            logits = self.curl_model.compute_logits(feature_anchor, feature_pos)
+            labels = torch.arange(logits.shape[0]).long().to(self.device)
+            obs_loss = self.cross_entropy_loss(logits, labels)
         reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
 
         # add all losses and update model parameters with gradient descent
@@ -125,3 +175,33 @@ class DreamerBase:
             self.logger.log('train_model/kl_loss', kl_loss.item(), self.model_itr)
             self.logger.log('train_model/overall_loss', model_loss.item(), self.model_itr)
         return model_loss, flatten_states, flatten_rnn_hiddens
+
+    def get_video(self, actions, obs):
+        with torch.no_grad():
+            observations = np.array(obs)
+            observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
+            ground_truth = observations + 0.5
+            ground_truth = ground_truth.squeeze(1).unsqueeze(0)
+
+            if self.args.image_loss_type == 'reconstruction':
+                actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
+
+                # embed observations
+                embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
+
+                # initialize rnn hidden state
+                rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
+
+                # imagine trajectory
+                imagined = []
+                state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
+                for action in actions:
+                    state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
+                    state = state_prior.sample()
+                    predicted_obs = self.observation_decoder(state, rnn_hidden)
+                    imagined.append(predicted_obs)
+                imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
+                video = torch.cat((ground_truth, imagined), dim=0)
+            elif self.args.image_loss_type == 'contrastive':
+                video = ground_truth
+        return video

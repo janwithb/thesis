@@ -1,3 +1,6 @@
+from utils.misc import center_crop_image
+
+
 class Sampler:
     def __init__(self, env, replay_buffer, agent):
         super().__init__()
@@ -23,7 +26,10 @@ class Sampler:
                 if random:
                     action = self.env.action_space.sample()
                 else:
-                    action = self.agent.get_action(observation, exploration=exploration)
+                    if (observation.shape[1] > 64) or (observation.shape[2] > 64):
+                        action = self.agent.get_action(center_crop_image(observation, 64), exploration=exploration)
+                    else:
+                        action = self.agent.get_action(observation, exploration=exploration)
                 episode_actions.append(action)
                 episode_observations.append(observation)
                 next_observation, reward, done, info = self.env.step(action)

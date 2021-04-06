@@ -210,7 +210,7 @@ class DreamerSAC(DreamerBase):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        if self.args.full_tb_log and self.sac_itr % self.args.model_log_freq == 0:
+        if self.args.full_tb_log and (self.sac_itr % self.args.model_log_freq == 0):
             self.critic.log(self.logger, self.sac_itr)
 
     def optimize_actor(self, obs):
@@ -222,7 +222,7 @@ class DreamerSAC(DreamerBase):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        if self.args.full_tb_log and self.sac_itr % self.args.model_log_freq == 0:
+        if self.args.full_tb_log and (self.sac_itr % self.args.model_log_freq == 0):
             self.actor.log(self.logger, self.sac_itr)
         return log_prob
 
@@ -279,31 +279,6 @@ class DreamerSAC(DreamerBase):
             self.logger.log('train_alpha/value_loss', alpha_loss, self.sac_itr)
             self.logger.log('train_alpha/value', self.alpha, self.sac_itr)
         return alpha_loss
-
-    def get_video(self, actions, obs):
-        with torch.no_grad():
-            observations = torch.as_tensor(obs, device=self.device).transpose(0, 1)
-            ground_truth = observations + 0.5
-            ground_truth = ground_truth.squeeze(1).unsqueeze(0)
-            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
-
-            # embed observations
-            embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
-
-            # initialize rnn hidden state
-            rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
-
-            # imagine trajectory
-            imagined = []
-            state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
-            for action in actions:
-                state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
-                state = state_prior.sample()
-                predicted_obs = self.observation_decoder(state, rnn_hidden)
-                imagined.append(predicted_obs)
-            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
-            video = torch.cat((ground_truth, imagined), dim=0)
-        return video
 
     def save_model(self, model_path, model_name):
         torch.save({

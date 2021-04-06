@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from skimage.util.shape import view_as_windows
+from torchvision import transforms
 
 
 def make_dir(dir_path):
@@ -71,6 +72,28 @@ def random_crop(imgs, output_size):
     cropped_imgs = windows[np.arange(batch_size), :, w1, h1]
     cropped_imgs = np.reshape(cropped_imgs, n + cropped_imgs.shape[1:])
     return cropped_imgs
+
+
+def center_crop_image(image, output_size, batch=False):
+    if not batch:
+        h, w = image.shape[1:]
+    else:
+        h, w = image.shape[3:]
+    new_h, new_w = output_size, output_size
+
+    top = (h - new_h)//2
+    left = (w - new_w)//2
+
+    image = image[..., top:top + new_h, left:left + new_w]
+    return image
+
+
+def augument_image():
+    data_transforms = transforms.Compose([
+        transforms.RandomResizedCrop(256),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
 
 
 def compute_logits(z_a, z_pos, z_dim):
