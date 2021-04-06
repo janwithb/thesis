@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--observation_size', default=64, type=int)
+    parser.add_argument('--observation_size', default=84, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
 
@@ -56,9 +56,10 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
+    parser.add_argument('--image_loss_type', default='contrastive', type=str)
 
     # agent
-    parser.add_argument('--controller_type', default='random_shooting', type=str)
+    parser.add_argument('--controller_type', default='cem', type=str)
     parser.add_argument('--horizon', default=12, type=int)
     parser.add_argument('--num_control_samples', default=1000, type=int)
     parser.add_argument('--max_iterations', default=10, type=int)

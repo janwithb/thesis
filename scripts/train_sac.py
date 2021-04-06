@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument('--save_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer', default=False, action='store_true')
     parser.add_argument('--load_buffer_dir', default='', type=str)
-    parser.add_argument('--sac_replay_buffer_capacity', default=1000000, type=int)
+    parser.add_argument('--sac_replay_buffer_capacity', default=2000000, type=int)
 
     # train
     parser.add_argument('--init_episodes', default=5, type=int)
@@ -61,6 +61,7 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
+    parser.add_argument('--image_loss_type', default='reconstruction', type=str)
 
     # critic
     parser.add_argument('--critic_hidden_dim', default=1024, type=int)

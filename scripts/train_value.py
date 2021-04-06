@@ -56,6 +56,7 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
+    parser.add_argument('--image_loss_type', default='reconstruction', type=str)
 
     # value
     parser.add_argument('--imagination_horizon', default=15, type=int)
@@ -69,7 +70,7 @@ def parse_args():
     parser.add_argument('--action_eps', default=1e-4, type=float)
 
     # agent
-    parser.add_argument('--exploration_noise_var', type=float, default=0.3)
+    parser.add_argument('--exploration_noise_var', default=0.3, type=float)
 
     # misc
     parser.add_argument('--work_dir', default='../output', type=str)
