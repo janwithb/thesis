@@ -1,3 +1,5 @@
+import time
+
 import torch
 import numpy as np
 
@@ -36,9 +38,9 @@ class DreamerBase:
         # recurrent state space model
         self.rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
 
-        if self.args.image_loss_type == 'contrastive':
-            self.curl_model = CURLModel(self.feature_size)
-            self.cross_entropy_loss = nn.CrossEntropyLoss()
+        # CURL model
+        self.curl_model = CURLModel(self.feature_size)
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
 
         # bundle model parameters
         self.model_params = (list(self.observation_encoder.parameters()) +
@@ -56,6 +58,7 @@ class DreamerBase:
         self.observation_decoder.to(self.device)
         self.reward_model.to(self.device)
         self.rssm.to(self.device)
+        self.curl_model.to(self.device)
 
         # model optimizer
         self.model_optimizer = torch.optim.Adam(self.model_params, lr=args.model_lr, eps=args.model_eps)
@@ -80,93 +83,143 @@ class DreamerBase:
         return flatten_states, flatten_rnn_hiddens
 
     def model_loss(self):
-        observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
-        observations_pos = observations.copy()
+        if self.args.image_loss_type == 'reconstruction':
+            loss_start_time = time.time()
+            observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
 
-        # augment images for contrastive loss
-        if self.args.image_loss_type == 'contrastive':
-            observations = random_crop(observations, 64)
-            observations_pos = random_crop(observations_pos, 64)
+            observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
+            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
+            rewards = torch.as_tensor(rewards, device=self.device).transpose(0, 1)
 
-        observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
-        observations_pos = torch.as_tensor(observations_pos, device=self.device).transpose(0, 1)
-        actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
-        rewards = torch.as_tensor(rewards, device=self.device).transpose(0, 1)
+            # embed observations
+            embedded_observations = self.observation_encoder(observations.reshape(-1, 3, 64, 64))
+            embedded_observations = embedded_observations.view(self.args.chunk_length, self.args.batch_size, -1)
 
-        # embed observations
-        embedded_observations = self.observation_encoder(observations.reshape(-1, 3, 64, 64))
-        embedded_observations = embedded_observations.view(self.args.chunk_length, self.args.batch_size, -1)
-        embedded_observations_pos = self.observation_encoder(observations_pos.reshape(-1, 3, 64, 64))
-        embedded_observations_pos = embedded_observations_pos.view(self.args.chunk_length, self.args.batch_size, -1)
-
-        # prepare Tensor to maintain states sequence and rnn hidden states sequence
-        states = torch.zeros(self.args.chunk_length,
-                             self.args.batch_size,
-                             self.args.stochastic_size,
-                             device=self.device)
-        states_pos = torch.zeros(self.args.chunk_length,
+            # prepare Tensor to maintain states sequence and rnn hidden states sequence
+            states = torch.zeros(self.args.chunk_length,
                                  self.args.batch_size,
                                  self.args.stochastic_size,
                                  device=self.device)
-        rnn_hiddens = torch.zeros(self.args.chunk_length,
-                                  self.args.batch_size,
-                                  self.args.deterministic_size,
-                                  device=self.device)
-        rnn_hiddens_pos = torch.zeros(self.args.chunk_length,
+            rnn_hiddens = torch.zeros(self.args.chunk_length,
                                       self.args.batch_size,
                                       self.args.deterministic_size,
                                       device=self.device)
 
-        # initialize state and rnn hidden state with 0 vector
-        state = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
-        state_pos = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
-        rnn_hidden = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
-        rnn_hidden_pos = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
+            # initialize state and rnn hidden state with 0 vector
+            state = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
+            rnn_hidden = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
 
-        # compute state and rnn hidden sequences and kl loss
-        kl_loss = 0
-        for l in range(self.args.chunk_length - 1):
-            next_state_prior, next_state_posterior, rnn_hidden = self.rssm(state,
-                                                                           actions[l],
-                                                                           rnn_hidden,
-                                                                           embedded_observations[l + 1])
-            next_state_prior_pos, next_state_posterior_pos, rnn_hidden_pos = self.rssm(state_pos,
-                                                                                       actions[l],
-                                                                                       rnn_hidden_pos,
-                                                                                       embedded_observations_pos[l + 1])
-            state = next_state_posterior.rsample()
-            state_pos = next_state_posterior_pos.rsample()
-            states[l + 1] = state
-            states_pos[l + 1] = state_pos
-            rnn_hiddens[l + 1] = rnn_hidden
-            rnn_hiddens_pos[l + 1] = rnn_hidden_pos
-            kl = kl_divergence(next_state_prior, next_state_posterior).sum(dim=1)
-            kl_loss += kl.clamp(min=self.args.free_nats).mean()
-        kl_loss /= (self.args.chunk_length - 1)
+            # compute state and rnn hidden sequences and kl loss
+            kl_loss = 0
+            for l in range(self.args.chunk_length - 1):
+                next_state_prior, next_state_posterior, rnn_hidden = self.rssm(state,
+                                                                               actions[l],
+                                                                               rnn_hidden,
+                                                                               embedded_observations[l + 1])
+                state = next_state_posterior.rsample()
+                states[l + 1] = state
+                rnn_hiddens[l + 1] = rnn_hidden
+                kl = kl_divergence(next_state_prior, next_state_posterior).sum(dim=1)
+                kl_loss += kl.clamp(min=self.args.free_nats).mean()
+            kl_loss /= (self.args.chunk_length - 1)
 
-        # compute reconstructed observations and predicted rewards
-        flatten_states = states.view(-1, self.args.stochastic_size)
-        flatten_states_pos = states_pos.view(-1, self.args.stochastic_size)
-        flatten_rnn_hiddens = rnn_hiddens.view(-1, self.args.deterministic_size)
-        flatten_rnn_hiddens_pos = rnn_hiddens_pos.view(-1, self.args.deterministic_size)
-        feature_anchor = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
-        feature_pos = torch.cat([flatten_states_pos, flatten_rnn_hiddens_pos], dim=1)
-        recon_observations = self.observation_decoder(flatten_states, flatten_rnn_hiddens)
-        recon_observations = recon_observations.view(self.args.chunk_length, self.args.batch_size, 3, 64, 64)
-        predicted_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
-        predicted_rewards = predicted_rewards.view(self.args.chunk_length, self.args.batch_size, 1)
+            # compute reconstructed observations and predicted rewards
+            flatten_states = states.view(-1, self.args.stochastic_size)
+            flatten_rnn_hiddens = rnn_hiddens.view(-1, self.args.deterministic_size)
+            recon_observations = self.observation_decoder(flatten_states, flatten_rnn_hiddens)
+            recon_observations = recon_observations.view(self.args.chunk_length, self.args.batch_size, 3, 64, 64)
+            predicted_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
+            predicted_rewards = predicted_rewards.view(self.args.chunk_length, self.args.batch_size, 1)
 
-        # compute loss for observation and reward
-        if self.args.image_loss_type == 'reconstruction':
+            # compute loss for observation and reward
             obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
+            reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
         elif self.args.image_loss_type == 'contrastive':
-            logits = self.curl_model.compute_logits(feature_anchor, feature_pos)
+            loss_start_time = time.time()
+            observations_a, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
+            observations_pos = observations_a.copy()
+
+            # augment images
+            observations_a = random_crop(observations_a, 64)
+            observations_pos = random_crop(observations_pos, 64)
+
+            observations_a = torch.as_tensor(observations_a, device=self.device).transpose(0, 1)
+            observations_pos = torch.as_tensor(observations_pos, device=self.device).transpose(0, 1)
+            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
+            rewards = torch.as_tensor(rewards, device=self.device).transpose(0, 1)
+
+            # embed observations
+            embedded_observations_a = self.observation_encoder(observations_a.reshape(-1, 3, 64, 64))
+            embedded_observations_a = embedded_observations_a.view(self.args.chunk_length, self.args.batch_size, -1)
+            embedded_observations_pos = self.observation_encoder(observations_pos.reshape(-1, 3, 64, 64))
+            embedded_observations_pos = embedded_observations_pos.view(self.args.chunk_length, self.args.batch_size, -1)
+
+            # prepare Tensor to maintain states sequence and rnn hidden states sequence
+            states_a = torch.zeros(self.args.chunk_length,
+                                   self.args.batch_size,
+                                   self.args.stochastic_size,
+                                   device=self.device)
+            states_pos = torch.zeros(self.args.chunk_length,
+                                     self.args.batch_size,
+                                     self.args.stochastic_size,
+                                     device=self.device)
+            rnn_hiddens_a = torch.zeros(self.args.chunk_length,
+                                        self.args.batch_size,
+                                        self.args.deterministic_size,
+                                        device=self.device)
+            rnn_hiddens_pos = torch.zeros(self.args.chunk_length,
+                                          self.args.batch_size,
+                                          self.args.deterministic_size,
+                                          device=self.device)
+
+            # initialize state and rnn hidden state with 0 vector
+            state_a = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
+            state_pos = torch.zeros(self.args.batch_size, self.args.stochastic_size, device=self.device)
+            rnn_hidden_a = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
+            rnn_hidden_pos = torch.zeros(self.args.batch_size, self.args.deterministic_size, device=self.device)
+
+            # compute state and rnn hidden sequences and kl loss
+            kl_loss = 0
+            for l in range(self.args.chunk_length - 1):
+                next_state_prior_a, next_state_posterior_a, rnn_hidden_a = self.rssm(state_a,
+                                                                                     actions[l],
+                                                                                     rnn_hidden_a,
+                                                                                     embedded_observations_a[l + 1])
+                next_state_prior_pos, next_state_posterior_pos, rnn_hidden_pos = self.rssm(state_pos,
+                                                                                           actions[l],
+                                                                                           rnn_hidden_pos,
+                                                                                           embedded_observations_pos[l + 1])
+                state_a = next_state_posterior_a.rsample()
+                state_pos = next_state_posterior_pos.rsample()
+                states_a[l + 1] = state_a
+                states_pos[l + 1] = state_pos
+                rnn_hiddens_a[l + 1] = rnn_hidden_a
+                rnn_hiddens_pos[l + 1] = rnn_hidden_pos
+                kl = kl_divergence(next_state_prior_a, next_state_posterior_a).sum(dim=1)
+                kl_loss += kl.clamp(min=self.args.free_nats).mean()
+            kl_loss /= (self.args.chunk_length - 1)
+
+            # compute reconstructed observations and predicted rewards
+            flatten_states_a = states_a.view(-1, self.args.stochastic_size)
+            flatten_states_pos = states_pos.view(-1, self.args.stochastic_size)
+            flatten_rnn_hiddens_a = rnn_hiddens_a.view(-1, self.args.deterministic_size)
+            flatten_rnn_hiddens_pos = rnn_hiddens_pos.view(-1, self.args.deterministic_size)
+            feature_a = torch.cat([flatten_states_a, flatten_rnn_hiddens_a], dim=1)
+            feature_pos = torch.cat([flatten_states_pos, flatten_rnn_hiddens_pos], dim=1)
+            predicted_rewards = self.reward_model(flatten_states_a, flatten_rnn_hiddens_a)
+            predicted_rewards = predicted_rewards.view(self.args.chunk_length, self.args.batch_size, 1)
+
+            # compute loss for observation and reward
+            logits = self.curl_model.compute_logits(feature_a, feature_pos)
             labels = torch.arange(logits.shape[0]).long().to(self.device)
             obs_loss = self.cross_entropy_loss(logits, labels)
-        reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
+            reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
+            flatten_states = flatten_states_a
+            flatten_rnn_hiddens = flatten_rnn_hiddens_a
 
         # add all losses and update model parameters with gradient descent
         model_loss = self.args.kl_scale * kl_loss + obs_loss + reward_loss
+        loss_time = time.time() - loss_start_time
 
         # log losses
         if self.model_itr % self.args.model_log_freq == 0:
