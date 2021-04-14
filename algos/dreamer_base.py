@@ -12,7 +12,7 @@ from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
-from utils.misc import random_crop
+from utils.misc import random_crop, augument_image
 
 
 class DreamerBase:
@@ -84,7 +84,6 @@ class DreamerBase:
 
     def model_loss(self):
         if self.args.image_loss_type == 'reconstruction':
-            loss_start_time = time.time()
             observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
 
             observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
@@ -135,23 +134,22 @@ class DreamerBase:
             obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
             reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
         elif self.args.image_loss_type == 'contrastive':
-            loss_start_time = time.time()
             observations_a, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
             observations_pos = observations_a.copy()
-
-            # augment images
-            observations_a = random_crop(observations_a, 64)
-            observations_pos = random_crop(observations_pos, 64)
-
             observations_a = torch.as_tensor(observations_a, device=self.device).transpose(0, 1)
             observations_pos = torch.as_tensor(observations_pos, device=self.device).transpose(0, 1)
             actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
             rewards = torch.as_tensor(rewards, device=self.device).transpose(0, 1)
 
+            # augment images
+            size = self.args.observation_size
+            observations_a = augument_image(observations_a.reshape(-1, 3, size, size))
+            observations_pos = augument_image(observations_pos.reshape(-1, 3, size, size))
+
             # embed observations
-            embedded_observations_a = self.observation_encoder(observations_a.reshape(-1, 3, 64, 64))
+            embedded_observations_a = self.observation_encoder(observations_a)
             embedded_observations_a = embedded_observations_a.view(self.args.chunk_length, self.args.batch_size, -1)
-            embedded_observations_pos = self.observation_encoder(observations_pos.reshape(-1, 3, 64, 64))
+            embedded_observations_pos = self.observation_encoder(observations_pos)
             embedded_observations_pos = embedded_observations_pos.view(self.args.chunk_length, self.args.batch_size, -1)
 
             # prepare Tensor to maintain states sequence and rnn hidden states sequence
@@ -219,7 +217,6 @@ class DreamerBase:
 
         # add all losses and update model parameters with gradient descent
         model_loss = self.args.kl_scale * kl_loss + obs_loss + reward_loss
-        loss_time = time.time() - loss_start_time
 
         # log losses
         if self.model_itr % self.args.model_log_freq == 0:

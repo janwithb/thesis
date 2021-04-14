@@ -11,7 +11,7 @@ from agents.value_agent import PolicyAgent
 from algos.dreamer_base import DreamerBase
 from models.action_model import ActionModel
 from models.value_model import ValueModel
-from utils.misc import lambda_target, center_crop_image
+from utils.misc import lambda_target
 from utils.sampler import Sampler
 
 

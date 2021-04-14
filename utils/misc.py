@@ -4,9 +4,9 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import kornia
 
 from skimage.util.shape import view_as_windows
-from torchvision import transforms
 
 
 def make_dir(dir_path):
@@ -88,12 +88,18 @@ def center_crop_image(image, output_size, batch=False):
     return image
 
 
-def augument_image():
-    data_transforms = transforms.Compose([
-        transforms.RandomResizedCrop(256),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+def augument_image(image):
+    transforms = nn.Sequential(
+        nn.ReplicationPad2d(4),
+        kornia.augmentation.RandomCrop(size=(64, 64)),
+        kornia.augmentation.RandomErasing(p=0.1),
+        kornia.augmentation.RandomHorizontalFlip(p=0.1),
+        kornia.augmentation.RandomVerticalFlip(p=0.1),
+        kornia.augmentation.RandomRotation(p=0.1, degrees=5.0),
+        kornia.augmentation.ColorJitter(p=0.1)
+    )
+    augumented_image = transforms(image)
+    return augumented_image
 
 
 def compute_logits(z_a, z_pos, z_dim):
