@@ -1,5 +1,3 @@
-import time
-
 import torch
 import numpy as np
 
@@ -12,7 +10,7 @@ from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
-from utils.misc import random_crop, augument_image
+from utils.misc import augument_image
 
 
 class DreamerBase:

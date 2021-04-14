@@ -3,6 +3,7 @@ import os
 import time
 import torch
 import numpy as np
+import dmc_remastered as dmcr
 
 from dm_control import suite
 from algos.dreamer_value import DreamerValue
@@ -24,6 +25,7 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
+    parser.add_argument('--randomize_env', default=True, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
@@ -88,10 +90,11 @@ def main():
     args = parse_args()
 
     # create dm_control env
-    env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
-
-    # wrap env to gym env
-    env = GymWrapper(env)
+    if args.randomize_env:
+        _, env = dmcr.benchmarks.visual_generalization(args.domain_name, args.task_name, num_levels=100)
+    else:
+        env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+        env = GymWrapper(env)
 
     # augment observations by pixel values
     env = PixelObservation(env, args.observation_size)

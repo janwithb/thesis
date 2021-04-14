@@ -3,9 +3,9 @@ import os
 import time
 import torch
 import numpy as np
+import dmc_remastered as dmcr
 
 from dm_control import suite
-
 from algos.dreamer_sac import DreamerSAC
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
+    parser.add_argument('--randomize_env', default=True, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
@@ -37,12 +38,12 @@ def parse_args():
     parser.add_argument('--sac_replay_buffer_capacity', default=2000000, type=int)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
-    parser.add_argument('--sac_iterations', default=1000, type=int)
-    parser.add_argument('--render_training', default=False, action='store_true')
+    parser.add_argument('--model_iterations', default=1, type=int)
+    parser.add_argument('--sac_iterations', default=1, type=int)
+    parser.add_argument('--render_training', default=True, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
@@ -61,7 +62,7 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
-    parser.add_argument('--image_loss_type', default='reconstruction', type=str)
+    parser.add_argument('--image_loss_type', default='contrastive', type=str)
 
     # critic
     parser.add_argument('--critic_hidden_dim', default=1024, type=int)
@@ -96,8 +97,8 @@ def parse_args():
     parser.add_argument('--save_iter_model_freq', default=2, type=int)
     parser.add_argument('--load_model', default=False, action='store_true')
     parser.add_argument('--load_model_dir', default='', type=str)
-    parser.add_argument('--full_tb_log', default=False, action='store_true')
-    parser.add_argument('--model_log_freq', default=10, type=int)
+    parser.add_argument('--full_tb_log', default=True, action='store_true')
+    parser.add_argument('--model_log_freq', default=1, type=int)
     args = parser.parse_args()
     return args
 
@@ -106,10 +107,11 @@ def main():
     args = parse_args()
 
     # create dm_control env
-    env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
-
-    # wrap env to gym env
-    env = GymWrapper(env)
+    if args.randomize_env:
+        _, env = dmcr.benchmarks.visual_generalization(args.domain_name, args.task_name, num_levels=100)
+    else:
+        env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+        env = GymWrapper(env)
 
     # augment observations by pixel values
     env = PixelObservation(env, args.observation_size)

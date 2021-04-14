@@ -3,6 +3,7 @@ import os
 import time
 import torch
 import numpy as np
+import dmc_remastered as dmcr
 
 from dm_control import suite
 from algos.dreamer_mpc import DreamerMPC
@@ -24,6 +25,7 @@ def parse_args():
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
+    parser.add_argument('--randomize_env', default=True, action='store_true')
     parser.add_argument('--observation_size', default=84, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
@@ -35,11 +37,11 @@ def parse_args():
     parser.add_argument('--load_buffer_dir', default='', type=str)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
-    parser.add_argument('--render_training', default=False, action='store_true')
+    parser.add_argument('--model_iterations', default=1, type=int)
+    parser.add_argument('--render_training', default=True, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
@@ -59,9 +61,9 @@ def parse_args():
     parser.add_argument('--image_loss_type', default='contrastive', type=str)
 
     # agent
-    parser.add_argument('--controller_type', default='cem', type=str)
-    parser.add_argument('--horizon', default=12, type=int)
-    parser.add_argument('--num_control_samples', default=1000, type=int)
+    parser.add_argument('--controller_type', default='random_shooting', type=str)
+    parser.add_argument('--horizon', default=5, type=int)
+    parser.add_argument('--num_control_samples', default=5, type=int)
     parser.add_argument('--max_iterations', default=10, type=int)
     parser.add_argument('--num_elites', default=100, type=int)
     parser.add_argument('--exploration_noise_var', type=float, default=0.3)
@@ -82,10 +84,11 @@ def main():
     args = parse_args()
 
     # create dm_control env
-    env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
-
-    # wrap env to gym env
-    env = GymWrapper(env)
+    if args.randomize_env:
+        _, env = dmcr.benchmarks.visual_generalization(args.domain_name, args.task_name, num_levels=100)
+    else:
+        env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+        env = GymWrapper(env)
 
     # augment observations by pixel values
     env = PixelObservation(env, args.observation_size)
