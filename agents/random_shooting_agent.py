@@ -72,6 +72,9 @@ class RandomShooting(object):
             if exploration:
                 action += torch.normal(expl_mean, expl_std, size=(self.action_dim,), device=self.device)
 
+            # clip action
+            action = torch.clamp(action, -1, 1)
+
             # update rnn hidden state for next step planning
             _, self.rnn_hidden = self.rssm.prior(state_posterior.sample(),
                                                  action.unsqueeze(0),
