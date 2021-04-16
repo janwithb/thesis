@@ -28,6 +28,9 @@ class PolicyAgent(object):
             if exploration:
                 action += torch.normal(expl_mean, expl_std, size=(self.action_dim,), device=self.device)
 
+            # clip action
+            action = torch.clamp(action, -1, 1)
+
             # update rnn_hidden for next step
             _, self.rnn_hidden = self.rssm.prior(state, action, self.rnn_hidden)
 
