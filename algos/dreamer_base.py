@@ -55,9 +55,11 @@ class DreamerBase:
 
         # gpu settings
         self.observation_encoder.to(self.device)
+        self.observation_key_encoder.to(self.device)
         self.observation_decoder.to(self.device)
         self.reward_model.to(self.device)
         self.rssm.to(self.device)
+        self.key_rssm.to(self.device)
         self.curl_model.to(self.device)
 
         # model optimizer
