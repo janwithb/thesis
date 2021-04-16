@@ -37,10 +37,10 @@ def parse_args():
     parser.add_argument('--load_buffer_dir', default='', type=str)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
+    parser.add_argument('--model_iterations', default=1, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
@@ -59,6 +59,12 @@ def parse_args():
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
     parser.add_argument('--image_loss_type', default='reconstruction', type=str)
+
+    # curl
+    parser.add_argument('--use_key_encoder', default=True, action='store_true')
+    parser.add_argument('--key_encoder_tau', default=0.005, type=float)
+    parser.add_argument('--bilinear', default=True, action='store_true')
+    parser.add_argument('--curl_temperature', default=0.1, type=float)
 
     # value
     parser.add_argument('--imagination_horizon', default=15, type=int)

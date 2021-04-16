@@ -64,6 +64,12 @@ def parse_args():
     parser.add_argument('--kl_scale', default=1, type=int)
     parser.add_argument('--image_loss_type', default='contrastive', type=str)
 
+    # curl
+    parser.add_argument('--use_key_encoder', default=False, action='store_true')
+    parser.add_argument('--key_encoder_tau', default=0.005, type=float)
+    parser.add_argument('--bilinear', default=False, action='store_true')
+    parser.add_argument('--curl_temperature', default=0.1, type=float)
+
     # critic
     parser.add_argument('--critic_hidden_dim', default=1024, type=int)
     parser.add_argument('--critic_hidden_depth', default=2, type=int)
