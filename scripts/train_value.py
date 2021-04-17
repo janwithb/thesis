@@ -129,6 +129,7 @@ def main():
 
     # initialize logger
     logger = Logger(tensorboard_dir)
+    logger.log_hparams(vars(args))
 
     # initialize and preload replay buffer
     args.observation_shape = env.observation_space.shape

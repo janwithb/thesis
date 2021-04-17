@@ -26,6 +26,10 @@ class Logger:
         if self._sw is not None:
             self._sw.add_histogram(key, histogram, step)
 
+    def _try_sw_log_hparams(self, hparam_dict):
+        if self._sw is not None:
+            self._sw.add_hparams(hparam_dict, {'hparam/accuracy': 0})
+
     def log(self, key, value, step, n=1):
         assert key.startswith('train') or key.startswith('eval')
         if type(value) == torch.Tensor:
@@ -52,3 +56,6 @@ class Logger:
     def log_histogram(self, key, histogram, step):
         assert key.startswith('train') or key.startswith('eval')
         self._try_sw_log_histogram(key, histogram, step)
+
+    def log_hparams(self, hparam_dict):
+        self._try_sw_log_hparams(hparam_dict)
