@@ -2,11 +2,12 @@ import torch
 import torchvision
 
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.summary import hparams
 
 
 class Logger:
     def __init__(self, log_dir):
-        self._sw = SummaryWriter(log_dir)
+        self._sw = CustomSummaryWriter(log_dir)
 
     def _try_sw_log(self, key, value, step):
         if self._sw is not None:
@@ -59,3 +60,20 @@ class Logger:
 
     def log_hparams(self, hparam_dict):
         self._try_sw_log_hparams(hparam_dict)
+
+
+class CustomSummaryWriter(SummaryWriter):
+    def add_hparams(self, hparam_dict, metric_dict):
+        torch._C._log_api_usage_once("tensorboard.logging.add_hparams")
+        if type(hparam_dict) is not dict or type(metric_dict) is not dict:
+            raise TypeError('hparam_dict and metric_dict should be dictionary.')
+        exp, ssi, sei = hparams(hparam_dict, metric_dict)
+
+        logdir = self._get_file_writer().get_logdir()
+
+        with SummaryWriter(log_dir=logdir) as w_hp:
+            w_hp.file_writer.add_summary(exp)
+            w_hp.file_writer.add_summary(ssi)
+            w_hp.file_writer.add_summary(sei)
+            for k, v in metric_dict.items():
+                w_hp.add_scalar(k, v)
