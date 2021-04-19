@@ -301,5 +301,5 @@ class DreamerSAC(DreamerBase):
         self.critic.load_state_dict(checkpoint['critic_state_dict'])
         self.critic_target.load_state_dict(checkpoint['critic_target_state_dict'])
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.log_alpha = checkpoint['log_alpha_state_dict']
+        self.log_alpha = checkpoint['log_alpha']
 
