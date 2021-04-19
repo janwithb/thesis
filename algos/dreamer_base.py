@@ -255,25 +255,22 @@ class DreamerBase:
             ground_truth = observations + 0.5
             ground_truth = ground_truth.squeeze(1).unsqueeze(0)
 
-            if self.args.image_loss_type == 'reconstruction':
-                actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
+            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
 
-                # embed observations
-                embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
+            # embed observations
+            embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
 
-                # initialize rnn hidden state
-                rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
+            # initialize rnn hidden state
+            rnn_hidden = torch.zeros(1, self.rssm.rnn_hidden_dim, device=self.device)
 
-                # imagine trajectory
-                imagined = []
-                state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
-                for action in actions:
-                    state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
-                    state = state_prior.sample()
-                    predicted_obs = self.observation_decoder(state, rnn_hidden)
-                    imagined.append(predicted_obs)
-                imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
-                video = torch.cat((ground_truth, imagined), dim=0)
-            elif self.args.image_loss_type == 'contrastive':
-                video = ground_truth
+            # imagine trajectory
+            imagined = []
+            state = self.rssm.posterior(rnn_hidden, embedded_observation).sample()
+            for action in actions:
+                state_prior, rnn_hidden = self.rssm.prior(state, action, rnn_hidden)
+                state = state_prior.sample()
+                predicted_obs = self.observation_decoder(state, rnn_hidden)
+                imagined.append(predicted_obs)
+            imagined = torch.stack(imagined).squeeze(1).unsqueeze(0) + 0.5
+            video = torch.cat((ground_truth, imagined), dim=0)
         return video
