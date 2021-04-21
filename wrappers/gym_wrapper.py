@@ -54,16 +54,26 @@ class GymWrapper(core.Env):
 
     def step(self, action):
         time_step = self._env.step(action)
-        obs = time_step.observation
+        old_obs = time_step.observation
+        new_obs = []
+        for _, value in old_obs.items():
+            if not hasattr(value, "__len__"):
+                value = [value]
+            new_obs = new_obs + list(value)
         reward = time_step.reward or 0
         done = time_step.last()
         info = {'discount': time_step.discount}
-        return obs, reward, done, info
+        return np.array(new_obs), reward, done, info
 
     def reset(self):
         time_step = self._env.reset()
-        obs = time_step.observation
-        return obs
+        old_obs = time_step.observation
+        new_obs = []
+        for key, value in old_obs.items():
+            if not hasattr(value, "__len__"):
+                value = [value]
+            new_obs = new_obs + list(value)
+        return np.array(new_obs)
 
     def render(self, mode='human', **kwargs):
         img = self._env.physics.render(**kwargs)
