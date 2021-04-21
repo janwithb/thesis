@@ -5,16 +5,18 @@ from gym import ObservationWrapper
 
 
 class PixelObservation(ObservationWrapper):
-    def __init__(self, env, observation_size):
+    def __init__(self, env, observation_size, normalize=True):
         super(PixelObservation, self).__init__(env)
         self.env = env
+        self.normalize = normalize
         self._observation_size = observation_size
 
         # extend observation space with pixels
         pixels = self.preprocess_observation(self.env.render(mode='rgb_array',
                                                              height=observation_size,
                                                              width=observation_size,
-                                                             camera_id=0))
+                                                             camera_id=0),
+                                             normalize=self.normalize)
 
         # set observation space
         if np.issubdtype(pixels.dtype, np.integer):
@@ -31,13 +33,15 @@ class PixelObservation(ObservationWrapper):
                                             height=self._observation_size,
                                             width=self._observation_size,
                                             camera_id=0)
-        prepocessed_observation = self.preprocess_observation(pixel_observation)
+        prepocessed_observation = self.preprocess_observation(pixel_observation, normalize=self.normalize)
         return prepocessed_observation
 
-    def preprocess_observation(self, observation):
+    def preprocess_observation(self, observation, normalize=True):
         # normalize observation
-        prepocessed_observation = np.array(observation).astype(np.float32) / 255.0 - 0.5
+        if normalize:
+            normalized_observation = np.array(observation).astype(np.float32) / 255.0 - 0.5
+            observation = normalized_observation
 
         # change shape from (height, width, channels) to (channels, height, width)
-        prepocessed_observation = np.rollaxis(prepocessed_observation, 2, 0)
+        prepocessed_observation = np.rollaxis(observation, 2, 0)
         return prepocessed_observation
