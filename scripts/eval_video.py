@@ -40,6 +40,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.parse_args()
 
+    # config
     parser.add_argument('--train_args_dir', default='', type=str)
     parser.add_argument('--load_model_dir', default='', type=str)
     parser.add_argument('--video_length', default=100, type=int)
