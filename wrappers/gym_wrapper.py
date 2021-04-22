@@ -57,6 +57,8 @@ class GymWrapper(core.Env):
         old_obs = time_step.observation
         new_obs = []
         for _, value in old_obs.items():
+            if np.ndim(value) == 0:
+                value = value.tolist()
             if not hasattr(value, "__len__"):
                 value = [value]
             new_obs = new_obs + list(value)
@@ -70,7 +72,9 @@ class GymWrapper(core.Env):
         old_obs = time_step.observation
         new_obs = []
         for key, value in old_obs.items():
-            if not hasattr(value, "__len__"):
+            if np.ndim(value) == 0:
+                value = value.tolist()
+            if not hasattr(value, '__len__'):
                 value = [value]
             new_obs = new_obs + list(value)
         return np.array(new_obs)
