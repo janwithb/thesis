@@ -252,7 +252,7 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.args.model_log_freq == 0:
-            self.logger.log('train_critic/critic_loss', critic_loss, self.sac_itr)
+            self.logger.log('train_critic/critic_loss', critic_loss.item(), self.sac_itr)
         return critic_loss
 
     def actor_loss(self, obs):
@@ -266,7 +266,7 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.args.model_log_freq == 0:
-            self.logger.log('train_actor/actor_loss', actor_loss, self.sac_itr)
+            self.logger.log('train_actor/actor_loss', actor_loss.item(), self.sac_itr)
             self.logger.log('train_actor/target_entropy', self.target_entropy, self.sac_itr)
             self.logger.log('train_actor/entropy', -log_prob.mean(), self.sac_itr)
         return actor_loss, log_prob
@@ -276,24 +276,27 @@ class DreamerSAC(DreamerBase):
 
         # log losses
         if self.sac_itr % self.args.model_log_freq == 0:
-            self.logger.log('train_alpha/value_loss', alpha_loss, self.sac_itr)
+            self.logger.log('train_alpha/value_loss', alpha_loss.item(), self.sac_itr)
             self.logger.log('train_alpha/value', self.alpha, self.sac_itr)
         return alpha_loss
 
     def save_model(self, model_path, model_name):
         torch.save({
-            'observation_encoder_state_dict': self.observation_encoder.state_dict(),
-            'observation_decoder_state_dict': self.observation_decoder.state_dict(),
-            'reward_model_state_dict': self.reward_model.state_dict(),
-            'rssm_state_dict': self.rssm.state_dict(),
-            'critic_state_dict': self.critic.state_dict(),
-            'critic_target_state_dict': self.critic_target.state_dict(),
-            'actor_state_dict': self.actor.state_dict(),
-            'log_alpha': self.log_alpha
+            'observation_encoder_state_dict': self.observation_encoder.to('cpu').state_dict(),
+            'observation_decoder_state_dict': self.observation_decoder.to('cpu').state_dict(),
+            'reward_model_state_dict': self.reward_model.to('cpu').state_dict(),
+            'rssm_state_dict': self.rssm.to('cpu').state_dict(),
+            'critic_state_dict': self.critic.to('cpu').state_dict(),
+            'critic_target_state_dict': self.critic_target.to('cpu').state_dict(),
+            'actor_state_dict': self.actor.to('cpu').state_dict(),
+            'log_alpha': self.log_alpha.to('cpu')
         }, os.path.join(model_path, model_name))
 
     def load_model(self, model_path):
-        checkpoint = torch.load(model_path)
+        if self.device.type == 'cuda':
+            checkpoint = torch.load(model_path, map_location="cuda:0")
+        else:
+            checkpoint = torch.load(model_path)
         self.observation_encoder.load_state_dict(checkpoint['observation_encoder_state_dict'])
         self.observation_decoder.load_state_dict(checkpoint['observation_decoder_state_dict'])
         self.reward_model.load_state_dict(checkpoint['reward_model_state_dict'])
