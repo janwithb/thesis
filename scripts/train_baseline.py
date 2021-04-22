@@ -23,9 +23,9 @@ def parse_args():
     parser.add_argument('--task_name', default='swingup', type=str)
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--randomize_env', default=False, action='store_true')
-    parser.add_argument('--observation_type', default='state', type=str)
+    parser.add_argument('--observation_type', default='pixel', type=str)
     parser.add_argument('--observation_size', default=64, type=int)
-    parser.add_argument('--frame_stack', default=1, type=int)
+    parser.add_argument('--frame_stack', default=4, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
     parser.add_argument('--work_dir', default='../output', type=str)
     args = parser.parse_args()
@@ -62,6 +62,7 @@ def main():
     make_dir(args.work_dir)
 
     # make other directories
+    model_dir = make_dir(os.path.join(args.work_dir, 'model'))
     config_dir = make_dir(os.path.join(args.work_dir, 'config'))
     tensorboard_dir = make_dir(os.path.join(args.work_dir, 'tensorboard'))
 
@@ -72,11 +73,11 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if args.observation_type == 'pixel':
-        model = SAC('CnnPolicy', env, verbose=1, tensorboard_log=tensorboard_dir, device=device)
+        model = SAC('CnnPolicy', env, verbose=1, tensorboard_log=tensorboard_dir, device=device, buffer_size=50000)
     elif args.observation_type == 'state':
         model = SAC('MlpPolicy', env, verbose=1, tensorboard_log=tensorboard_dir, device=device)
-    model.learn(total_timesteps=1000000, log_interval=1)
-    model.save("model_final")
+    model.learn(total_timesteps=10000000, log_interval=1)
+    model.save(os.path.join(model_dir, 'model_final'))
 
     # close environment
     env.close()
