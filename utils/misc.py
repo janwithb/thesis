@@ -142,3 +142,11 @@ def lambda_target(rewards, values, gamma, lambda_):
             V_lambda += (1 - lambda_) * (lambda_ ** (n-1)) * V_n
 
     return V_lambda
+
+
+def conv_out(h_in, padding, kernel_size, stride):
+    return int((h_in + 2. * padding - (kernel_size - 1.) - 1.) / stride + 1.)
+
+
+def conv_out_shape(h_in, padding, kernel_size, stride):
+    return tuple(conv_out(x, padding, kernel_size, stride) for x in h_in)

@@ -39,7 +39,13 @@ class DreamerBase:
         self.key_rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
 
         # CURL model
-        self.curl_model = CURLModel(device, self.feature_size, self.args.curl_temperature, self.args.bilinear)
+        self.embed_size = self.observation_encoder.get_embed_size()
+        if self.args.image_loss_type == 'reconstruction' or self.args.image_loss_type == 'obs_embed_contrast':
+            self.curl_model = CURLModel(device, self.embed_size, self.feature_size, self.args.curl_temperature,
+                                        self.args.bilinear)
+        elif self.args.image_loss_type == 'augment_contrast':
+            self.curl_model = CURLModel(device, self.feature_size, self.feature_size, self.args.curl_temperature,
+                                        self.args.bilinear)
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
         # bundle model parameters
@@ -48,7 +54,7 @@ class DreamerBase:
                              list(self.rssm.parameters()))
         if self.args.image_loss_type == 'reconstruction':
             self.model_params = self.model_params + list(self.observation_decoder.parameters())
-        elif self.args.image_loss_type == 'contrastive':
+        elif self.args.image_loss_type == 'obs_embed_contrast' or self.args.image_loss_type == 'augment_contrast':
             self.model_params = self.model_params + list(self.curl_model.parameters())
         else:
             raise ValueError('unknown image loss type')
@@ -90,7 +96,7 @@ class DreamerBase:
         return flatten_states, flatten_rnn_hiddens
 
     def model_loss(self):
-        if self.args.image_loss_type == 'reconstruction':
+        if self.args.image_loss_type == 'reconstruction' or self.args.image_loss_type == 'obs_embed_contrast':
             observations, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
 
             observations = torch.as_tensor(observations, device=self.device).transpose(0, 1)
@@ -132,15 +138,23 @@ class DreamerBase:
             # compute reconstructed observations and predicted rewards
             flatten_states = states.view(-1, self.args.stochastic_size)
             flatten_rnn_hiddens = rnn_hiddens.view(-1, self.args.deterministic_size)
-            recon_observations = self.observation_decoder(flatten_states, flatten_rnn_hiddens)
-            recon_observations = recon_observations.view(self.args.chunk_length, self.args.batch_size, 3, 64, 64)
+
+            # compute observation loss
+            if self.args.image_loss_type == 'reconstruction':
+                recon_observations = self.observation_decoder(flatten_states, flatten_rnn_hiddens)
+                recon_observations = recon_observations.view(self.args.chunk_length, self.args.batch_size, 3, 64, 64)
+                obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
+            elif self.args.image_loss_type == 'obs_embed_contrast':
+                feature = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
+                flatten_embeds = embedded_observations.view(-1, self.embed_size)
+                logits, labels = self.curl_model.info_nce_loss(feature, flatten_embeds)
+                obs_loss = self.cross_entropy_loss(logits, labels)
             predicted_rewards = self.reward_model(flatten_states, flatten_rnn_hiddens)
             predicted_rewards = predicted_rewards.view(self.args.chunk_length, self.args.batch_size, 1)
 
             # compute loss for observation and reward
-            obs_loss = 0.5 * mse_loss(recon_observations[1:], observations[1:], reduction='none').mean([0, 1]).sum()
             reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
-        elif self.args.image_loss_type == 'contrastive':
+        elif self.args.image_loss_type == 'augment_contrast':
             observations_a, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
             observations_pos = observations_a.copy()
             observations_a = torch.as_tensor(observations_a, device=self.device).transpose(0, 1)
@@ -255,7 +269,7 @@ class DreamerBase:
             ground_truth = observations + 0.5
             ground_truth = ground_truth.squeeze(1).unsqueeze(0)
 
-            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1)
+            actions = torch.as_tensor(actions, device=self.device).transpose(0, 1).float()
 
             # embed observations
             embedded_observation = self.observation_encoder(observations[0].reshape(-1, 3, 64, 64))
