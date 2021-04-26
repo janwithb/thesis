@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 class SACAgent(object):
@@ -33,6 +34,8 @@ class SACAgent(object):
             _, self.rnn_hidden = self.rssm.prior(state, action, self.rnn_hidden)
 
         action = action.squeeze().cpu().numpy()
+        if np.ndim(action) == 0:
+            action = np.array([action.tolist()])
         return action
 
     def reset(self):
