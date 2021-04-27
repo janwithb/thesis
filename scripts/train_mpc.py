@@ -1,9 +1,11 @@
 import argparse
 import os
 import time
+import gym
 import torch
 import numpy as np
 import dmc_remastered as dmcr
+import envs
 
 from dm_control import suite
 from algos.dreamer_mpc import DreamerMPC
@@ -22,11 +24,13 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # environment
-    parser.add_argument('--domain_name', default='cheetah', type=str)
-    parser.add_argument('--task_name', default='run', type=str)
+    parser.add_argument('--env_type', default='dm_control', type=str)
+    parser.add_argument('--env_name', default='FetchReachRandom-v2', type=str)
+    parser.add_argument('--domain_name', default='cartpole', type=str)
+    parser.add_argument('--task_name', default='swingup', type=str)
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--randomize_env', default=True, action='store_true')
-    parser.add_argument('--observation_size', default=84, type=int)
+    parser.add_argument('--randomize_env', default=False, action='store_true')
+    parser.add_argument('--observation_size', default=64, type=int)
     parser.add_argument('--frame_stack', default=1, type=int)
     parser.add_argument('--action_repeat', default=4, type=int)
 
@@ -37,11 +41,11 @@ def parse_args():
     parser.add_argument('--load_buffer_dir', default='', type=str)
 
     # train
-    parser.add_argument('--init_episodes', default=1, type=int)
+    parser.add_argument('--init_episodes', default=5, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=1, type=int)
-    parser.add_argument('--render_training', default=True, action='store_true')
+    parser.add_argument('--model_iterations', default=100, type=int)
+    parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
@@ -58,7 +62,7 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
-    parser.add_argument('--image_loss_type', default='contrastive', type=str)
+    parser.add_argument('--image_loss_type', default='reconstruction', type=str)
 
     # curl
     parser.add_argument('--use_key_encoder', default=False, action='store_true')
@@ -67,9 +71,9 @@ def parse_args():
     parser.add_argument('--curl_temperature', default=0.1, type=float)
 
     # agent
-    parser.add_argument('--controller_type', default='random_shooting', type=str)
-    parser.add_argument('--horizon', default=5, type=int)
-    parser.add_argument('--num_control_samples', default=5, type=int)
+    parser.add_argument('--controller_type', default='cem', type=str)
+    parser.add_argument('--horizon', default=12, type=int)
+    parser.add_argument('--num_control_samples', default=1000, type=int)
     parser.add_argument('--max_iterations', default=10, type=int)
     parser.add_argument('--num_elites', default=100, type=int)
     parser.add_argument('--exploration_noise_var', type=float, default=0.3)
@@ -89,12 +93,15 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # create dm_control env
-    if args.randomize_env:
-        _, env = dmcr.benchmarks.visual_generalization(args.domain_name, args.task_name, num_levels=100)
-    else:
-        env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
-        env = GymWrapper(env)
+    # create env
+    if args.env_type == 'dm_control':
+        if args.randomize_env:
+            _, env = dmcr.benchmarks.visual_generalization(args.domain_name, args.task_name, num_levels=100)
+        else:
+            env = suite.load(args.domain_name, args.task_name, task_kwargs={'random': args.seed})
+            env = GymWrapper(env)
+    elif args.env_type == 'gym':
+        env = gym.make(args.env_name)
 
     # augment observations by pixel values
     env = PixelObservation(env, args.observation_size)
@@ -108,7 +115,10 @@ def main():
     # make work directory
     ts = time.gmtime()
     ts = time.strftime("%Y-%m-%d-%H-%M-%S", ts)
-    exp_name = args.domain_name + '-' + args.task_name + '-' + ts
+    if args.env_type == 'dm_control':
+        exp_name = args.domain_name + '-' + args.task_name + '-' + ts
+    elif args.env_type == 'gym':
+        exp_name = args.env_name + '-' + ts
     args.work_dir = args.work_dir + '/' + exp_name
     make_dir(args.work_dir)
 
@@ -154,7 +164,8 @@ def main():
     algorithm.train()
 
     # save training
-    replay_buffer.save(buffer_dir, 'replay_buffer')
+    if args.save_buffer:
+        replay_buffer.save(buffer_dir, 'replay_buffer')
     algorithm.save_model(model_dir, 'model_final')
 
     # close environment
