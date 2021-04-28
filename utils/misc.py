@@ -150,3 +150,8 @@ def conv_out(h_in, padding, kernel_size, stride):
 
 def conv_out_shape(h_in, padding, kernel_size, stride):
     return tuple(conv_out(x, padding, kernel_size, stride) for x in h_in)
+
+
+def check_mem():
+    mem = os.popen('nvidia-smi --query-gpu=memory.total,memory.used --format=csv,nounits,noheader').read().split(",")
+    return mem

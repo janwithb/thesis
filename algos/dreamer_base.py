@@ -10,7 +10,7 @@ from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
-from utils.misc import augument_image, soft_update_params
+from utils.misc import augument_image, soft_update_params, check_mem
 
 
 class DreamerBase:
@@ -23,6 +23,16 @@ class DreamerBase:
         self.args = args
         self.model_itr = 0
         self.feature_size = args.stochastic_size + args.deterministic_size
+
+        # reserve GPU memory
+        if device.type == 'cuda':
+            total, used = check_mem()
+            total = int(total)
+            used = int(used)
+            max_mem = int(total * 0.8)
+            block_mem = max_mem - used
+            x = torch.rand((256, 1024, block_mem), device=device)
+            x = torch.rand((2, 2), device=device)
 
         # encoder model
         self.observation_encoder = ObservationEncoder()
