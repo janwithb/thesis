@@ -24,11 +24,12 @@ class DreamerSAC(DreamerBase):
         self.critic_betas = (self.args.critic_beta_min, self.args.critic_beta_max)
         self.alpha_betas = (self.args.alpha_beta_min, self.args.alpha_beta_max)
 
+        sac_replay_buffer_device = 'cpu'
         self.sac_replay_buffer = ReplayBuffer(
             self.feature_size,
             self.args.action_dim,
             self.args.sac_replay_buffer_capacity,
-            self.device
+            sac_replay_buffer_device
         )
 
         # critic model
@@ -186,6 +187,12 @@ class DreamerSAC(DreamerBase):
     def optimize_sac(self, replay_buffer, sac_batch_size):
         # sample transition
         obs, action, reward, next_obs, not_done, not_done_no_max = replay_buffer.sample(sac_batch_size)
+        obs.to(self.device)
+        action.to(self.device)
+        reward.to(self.device)
+        next_obs.to(self.device)
+        not_done.to(self.device)
+        not_done_no_max.to(self.device)
 
         # update critic
         self.optimize_critic(obs, action, reward, next_obs, not_done_no_max)
