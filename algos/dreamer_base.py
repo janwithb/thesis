@@ -29,8 +29,11 @@ class DreamerBase:
             total, used = check_mem()
             total = int(total)
             used = int(used)
-            max_mem = int(total * 0.8)
-            block_mem = max_mem - used
+            available = total - used
+            block_mem = int(available * 0.8)
+            print('Total GPU memory:', total)
+            print('Used GPU memory:', available)
+            print('Blocked GPU memory:', block_mem)
             x = torch.rand((256, 1024, block_mem), device=device)
             x = torch.rand((2, 2), device=device)
 
