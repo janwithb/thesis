@@ -187,12 +187,12 @@ class DreamerSAC(DreamerBase):
     def optimize_sac(self, replay_buffer, sac_batch_size):
         # sample transition
         obs, action, reward, next_obs, not_done, not_done_no_max = replay_buffer.sample(sac_batch_size)
-        obs.to(self.device)
-        action.to(self.device)
-        reward.to(self.device)
-        next_obs.to(self.device)
-        not_done.to(self.device)
-        not_done_no_max.to(self.device)
+        obs = obs.to(self.device)
+        action = action.to(self.device)
+        reward = reward.to(self.device)
+        next_obs = next_obs.to(self.device)
+        not_done = not_done.to(self.device)
+        not_done_no_max = not_done_no_max.to(self.device)
 
         # update critic
         self.optimize_critic(obs, action, reward, next_obs, not_done_no_max)
