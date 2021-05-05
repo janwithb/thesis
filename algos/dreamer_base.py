@@ -2,6 +2,8 @@ import torch
 import numpy as np
 
 from torch import nn
+
+from models.byol_model import BYOLModel
 from models.curl_model import CURLModel
 from models.decoder_model import ObservationDecoder
 from models.encoder_model import ObservationEncoder
@@ -25,17 +27,17 @@ class DreamerBase:
         self.feature_size = args.stochastic_size + args.deterministic_size
 
         # reserve GPU memory
-        if device.type == 'cuda':
-            total, used = check_mem()
-            total = int(total)
-            used = int(used)
-            available = total - used
-            block_mem = int(available * 0.8)
-            print('Total GPU memory:', total)
-            print('Used GPU memory:', available)
-            print('Blocked GPU memory:', block_mem)
-            x = torch.rand((256, 1024, block_mem), device=device)
-            x = torch.rand((2, 2), device=device)
+        # if device.type == 'cuda':
+        #     total, used = check_mem()
+        #     total = int(total)
+        #     used = int(used)
+        #     available = total - used
+        #     block_mem = int(available * 0.8)
+        #     print('Total GPU memory:', total)
+        #     print('Available GPU memory:', available)
+        #     print('Blocked GPU memory:', block_mem)
+        #     x = torch.rand((256, 1024, block_mem), device=device)
+        #     del x
 
         # encoder model
         self.observation_encoder = ObservationEncoder()
@@ -56,9 +58,10 @@ class DreamerBase:
         if self.args.image_loss_type in ('reconstruction', 'obs_embed_contrast', 'aug_obs_embed_contrast'):
             self.curl_model = CURLModel(device, self.embed_size, self.feature_size, self.args.curl_temperature,
                                         self.args.bilinear)
-        elif self.args.image_loss_type == 'augment_contrast':
+        elif self.args.image_loss_type in ('augment_contrast', 'byol'):
             self.curl_model = CURLModel(device, self.feature_size, self.feature_size, self.args.curl_temperature,
                                         self.args.bilinear)
+            self.byol_model = BYOLModel(device, self.feature_size)
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
         # bundle model parameters
@@ -69,6 +72,8 @@ class DreamerBase:
             self.model_params = self.model_params + list(self.observation_decoder.parameters())
         elif self.args.image_loss_type in ('obs_embed_contrast', 'augment_contrast', 'aug_obs_embed_contrast'):
             self.model_params = self.model_params + list(self.curl_model.parameters())
+        elif self.args.image_loss_type == 'byol':
+            self.model_params = self.model_params + list(self.byol_model.parameters())
         else:
             raise ValueError('unknown image loss type')
 
@@ -80,6 +85,7 @@ class DreamerBase:
         self.rssm.to(self.device)
         self.key_rssm.to(self.device)
         self.curl_model.to(self.device)
+        self.byol_model.to(self.device)
 
         # model optimizer
         self.model_optimizer = torch.optim.Adam(self.model_params, lr=args.model_lr, eps=args.model_eps)
@@ -167,7 +173,7 @@ class DreamerBase:
 
             # compute loss for observation and reward
             reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
-        elif self.args.image_loss_type in ('augment_contrast', 'aug_obs_embed_contrast'):
+        elif self.args.image_loss_type in ('augment_contrast', 'aug_obs_embed_contrast', 'byol'):
             observations_a, actions, rewards, _ = self.replay_buffer.sample(self.args.batch_size, self.args.chunk_length)
             observations_pos = observations_a.copy()
             observations_a = torch.as_tensor(observations_a, device=self.device).transpose(0, 1)
@@ -260,10 +266,13 @@ class DreamerBase:
             # compute loss for observation and reward
             if self.args.image_loss_type == 'augment_contrast':
                 logits, labels = self.curl_model.info_nce_loss(feature_a, feature_pos)
+                obs_loss = self.cross_entropy_loss(logits, labels)
             elif self.args.image_loss_type == 'aug_obs_embed_contrast':
                 flatten_embeds_pos = embedded_observations_pos.view(-1, self.embed_size)
                 logits, labels = self.curl_model.info_nce_loss(feature_a, flatten_embeds_pos)
-            obs_loss = self.cross_entropy_loss(logits, labels)
+                obs_loss = self.cross_entropy_loss(logits, labels)
+            elif self.args.image_loss_type == 'byol':
+                obs_loss = self.byol_model.loss(feature_a, feature_pos)
             reward_loss = 0.5 * mse_loss(predicted_rewards[1:], rewards[:-1])
             flatten_states = flatten_states_a
             flatten_rnn_hiddens = flatten_rnn_hiddens_a
