@@ -92,14 +92,14 @@ def augument_image(image):
     transforms = nn.Sequential(
         nn.ReplicationPad2d(4),
         kornia.augmentation.RandomCrop(size=(64, 64)),
-        kornia.augmentation.RandomErasing(p=0.1),
-        kornia.augmentation.RandomHorizontalFlip(p=0.1),
-        kornia.augmentation.RandomVerticalFlip(p=0.1),
-        kornia.augmentation.RandomRotation(p=0.1, degrees=5.0),
-        kornia.augmentation.ColorJitter(p=0.1)
+        kornia.augmentation.ColorJitter(0.2, 0.3, 0.2, 0.3),
+        kornia.augmentation.RandomErasing(),
+        kornia.augmentation.RandomHorizontalFlip(),
+        kornia.augmentation.RandomVerticalFlip(),
+        kornia.augmentation.RandomRotation(degrees=5.0)
     )
-    augumented_image = transforms(image)
-    return augumented_image
+    augumented_image = transforms(image + 0.5)
+    return augumented_image - 0.5
 
 
 def compute_logits(z_a, z_pos, z_dim):
@@ -112,6 +112,7 @@ def compute_logits(z_a, z_pos, z_dim):
     logits = torch.matmul(z_a, Wz)  # (B,B)
     logits = logits - torch.max(logits, 1)[0][:, None]
     return logits
+
 
 def lambda_target(rewards, values, gamma, lambda_):
     """
