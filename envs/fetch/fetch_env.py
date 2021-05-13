@@ -161,6 +161,16 @@ class FetchEnv(robot_env.RobotEnv):
             object_qpos[:2] = object_xpos
             self.sim.data.set_joint_qpos('object0:joint', object_qpos)
 
+        # set colors
+        first_color = [0.356, 0.361, 0.376, 1.]
+        table_color = [0.46, 0.87, 0.58, 1.]
+        third_color_geoms = ['robot0:torso_lift_link', 'robot0:shoulder_pan_link', 'robot0:upperarm_roll_link',
+                             'robot0:forearm_roll_link', 'robot0:wrist_roll_link', 'robot0:gripper_link']
+        for name in third_color_geoms:
+            geom_id = self.sim.model.geom_name2id(name)
+            self.sim.model.geom_rgba[geom_id] = first_color
+        self.sim.model.geom_rgba[self.sim.model.geom_name2id('table_mat0')] = table_color
+
         if self.randomize_env:
             # randomize colors
             self._set_random_colors()
