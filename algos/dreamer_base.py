@@ -55,11 +55,11 @@ class DreamerBase:
         # CURL model
         self.embed_size = self.observation_encoder.get_embed_size()
         if self.args.image_loss_type in ('reconstruction', 'obs_embed_contrast', 'aug_obs_embed_contrast'):
-            self.curl_model = CURLModel(device, self.embed_size, self.feature_size, self.args.curl_temperature,
-                                        self.args.bilinear)
+            self.curl_model = CURLModel(device, self.embed_size, self.feature_size, similarity=args.similarity,
+                                        temperature=args.curl_temperature)
         elif self.args.image_loss_type == 'augment_contrast':
-            self.curl_model = CURLModel(device, self.feature_size, self.feature_size, self.args.curl_temperature,
-                                        self.args.bilinear)
+            self.curl_model = CURLModel(device, self.feature_size, self.feature_size, similarity=args.similarity,
+                                        temperature=args.curl_temperature)
 
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 

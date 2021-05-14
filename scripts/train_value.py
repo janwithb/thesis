@@ -26,8 +26,8 @@ def parse_args():
     # environment
     parser.add_argument('--env_type', default='dm_control', type=str)
     parser.add_argument('--env_name', default='FetchReachRandom-v2', type=str)
-    parser.add_argument('--domain_name', default='cartpole', type=str)
-    parser.add_argument('--task_name', default='swingup', type=str)
+    parser.add_argument('--domain_name', default='cheetah', type=str)
+    parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--randomize_env', default=False, action='store_true')
     parser.add_argument('--observation_size', default=64, type=int)
@@ -65,10 +65,10 @@ def parse_args():
     parser.add_argument('--image_loss_type', default='reconstruction', type=str)
 
     # curl
-    parser.add_argument('--use_key_encoder', default=True, action='store_true')
+    parser.add_argument('--use_key_encoder', default=False, action='store_true')
     parser.add_argument('--key_encoder_tau', default=0.005, type=float)
-    parser.add_argument('--bilinear', default=True, action='store_true')
-    parser.add_argument('--curl_temperature', default=0.1, type=float)
+    parser.add_argument('--similarity', default='bilinear_product', type=str)
+    parser.add_argument('--curl_temperature', default=1, type=float)
 
     # value
     parser.add_argument('--imagination_horizon', default=15, type=int)

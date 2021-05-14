@@ -5,13 +5,13 @@ from torch.nn import functional as F
 
 
 class CURLModel(nn.Module):
-    def __init__(self, device, x_dim, z_dim, temperature=1., bilinear=False, act=F.elu):
+    def __init__(self, device, x_dim, z_dim, similarity='dot_product', temperature=1., act=F.elu):
         super(CURLModel, self).__init__()
         self.x_dim = x_dim
         self.z_dim = z_dim
         self.device = device
+        self.similarity = similarity
         self.temperature = temperature
-        self.bilinear = bilinear
         self.act = act
 
         self.W = nn.Parameter(torch.rand(z_dim, z_dim))
@@ -33,12 +33,15 @@ class CURLModel(nn.Module):
             z_a = self.act(self.qth_fc2(z_a))
             z_pos = self.act(self.kth_fc1(z_pos))
             z_pos = self.act(self.kth_fc2(z_pos))
-        if self.bilinear:
+        if self.similarity == 'dot_product':
+            logits = torch.matmul(z_a.T, z_pos)  # (B,B)
+        elif self.similarity == 'bilinear_product':
             Wz = torch.matmul(self.W, z_pos.T)  # (z_dim,B)
             logits = torch.matmul(z_a, Wz)  # (B,B)
-        else:
-            logits = torch.matmul(z_a.T, z_pos)  # (B,B)
+        elif self.similarity == 'cosine':
+            logits = torch.matmul(z_a.T, z_pos)
+            logits = logits / (torch.norm(z_a) * torch.norm(z_pos))
+            logits = logits / self.temperature
         logits = logits - torch.max(logits, 1)[0][:, None]
         labels = torch.arange(logits.shape[0]).long().to(self.device)
-        logits = logits / self.temperature
         return logits, labels
