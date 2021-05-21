@@ -16,7 +16,9 @@ class FetchEnv(robot_env.RobotEnv):
     def __init__(
         self, model_path, n_substeps, gripper_extra_height, block_gripper,
         has_object, target_in_the_air, target_offset, obj_range, target_range,
-        distance_threshold, initial_qpos, reward_type, randomize_env,
+        distance_threshold, initial_qpos, reward_type, randomize_light, randomize_camera,
+        randomize_target_color, randomize_table_color, randomize_floor_color, randomize_background_color,
+        randomize_robot_color
     ):
         """Initializes a new Fetch environment.
 
@@ -43,7 +45,13 @@ class FetchEnv(robot_env.RobotEnv):
         self.target_range = target_range
         self.distance_threshold = distance_threshold
         self.reward_type = reward_type
-        self.randomize_env = randomize_env
+        self.randomize_light = randomize_light
+        self.randomize_camera = randomize_camera
+        self.randomize_target_color = randomize_target_color
+        self.randomize_table_color = randomize_table_color
+        self.randomize_floor_color = randomize_floor_color
+        self.randomize_background_color = randomize_background_color
+        self.randomize_robot_color = randomize_robot_color
 
         super(FetchEnv, self).__init__(
             model_path=model_path, n_substeps=n_substeps, n_actions=4,
@@ -171,17 +179,19 @@ class FetchEnv(robot_env.RobotEnv):
             self.sim.model.geom_rgba[geom_id] = first_color
         self.sim.model.geom_rgba[self.sim.model.geom_name2id('table_mat0')] = table_color
 
-        if self.randomize_env:
-            # randomize colors
-            self._set_random_colors()
+        # set sizes
+        size = [0.05, 0.05, 0.05]
+        self.sim.model.site_size[self.sim.model.site_name2id('target0')] = size
 
-            # randomize reflectance
-            self.material_modder.set_reflectance('table_mat0', np.random.uniform(0.0, 0.5))
+        # randomize colors
+        self._set_random_colors()
 
-            # randomize light
+        # randomize light
+        if self.randomize_light:
             self._set_random_lights()
 
-            # randomize camera
+        # randomize camera
+        if self.randomize_camera:
             self._set_random_camera()
 
         self.sim.forward()
@@ -202,20 +212,26 @@ class FetchEnv(robot_env.RobotEnv):
         third_color_geoms = ['robot0:torso_lift_link', 'robot0:shoulder_pan_link', 'robot0:upperarm_roll_link',
                              'robot0:forearm_roll_link', 'robot0:wrist_roll_link', 'robot0:gripper_link']
 
-        self.sim.model.site_rgba[self.sim.model.site_name2id('target0')] = target_color
-        self.sim.model.geom_rgba[self.sim.model.geom_name2id('table_mat0')] = table_color
-        self.sim.model.geom_rgba[self.sim.model.geom_name2id('floor0')] = floor_color
-        self.texture_modder.rand_noise('skybox')
-
-        for name in first_color_geoms:
-            geom_id = self.sim.model.geom_name2id(name)
-            self.sim.model.geom_rgba[geom_id] = first_color
-        for name in second_color_geoms:
-            geom_id = self.sim.model.geom_name2id(name)
-            self.sim.model.geom_rgba[geom_id] = second_color
-        for name in third_color_geoms:
-            geom_id = self.sim.model.geom_name2id(name)
-            self.sim.model.geom_rgba[geom_id] = third_color
+        if self.randomize_target_color:
+            self.sim.model.site_rgba[self.sim.model.site_name2id('target0')] = target_color
+        if self.randomize_table_color:
+            self.sim.model.geom_rgba[self.sim.model.geom_name2id('table_mat0')] = table_color
+            # randomize reflectance
+            self.material_modder.set_reflectance('table_mat0', np.random.uniform(0.0, 0.5))
+        if self.randomize_floor_color:
+            self.sim.model.geom_rgba[self.sim.model.geom_name2id('floor0')] = floor_color
+        if self.randomize_background_color:
+            self.texture_modder.rand_noise('skybox')
+        if self.randomize_robot_color:
+            for name in first_color_geoms:
+                geom_id = self.sim.model.geom_name2id(name)
+                self.sim.model.geom_rgba[geom_id] = first_color
+            for name in second_color_geoms:
+                geom_id = self.sim.model.geom_name2id(name)
+                self.sim.model.geom_rgba[geom_id] = second_color
+            for name in third_color_geoms:
+                geom_id = self.sim.model.geom_name2id(name)
+                self.sim.model.geom_rgba[geom_id] = third_color
 
     def _set_random_lights(self):
         amb_base = np.random.uniform(0.1, 0.8)

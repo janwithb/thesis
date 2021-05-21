@@ -16,7 +16,13 @@ register(
     entry_point='envs.fetch.reach:FetchReachEnv',
     kwargs={
         'reward_type': 'dense',
-        'randomize_env': True,
+        'randomize_light': False,
+        'randomize_camera': False,
+        'randomize_target_color': False,
+        'randomize_table_color': False,
+        'randomize_floor_color': False,
+        'randomize_background_color': True,
+        'randomize_robot_color': False
     },
     max_episode_steps=250,
 )
