@@ -262,9 +262,9 @@ class FetchEnv(robot_env.RobotEnv):
         self.light_modder.set_specular('light0', spec)
 
     def _set_random_camera(self):
-        distance = np.random.uniform(0., 0.1)
-        azimuth = np.random.uniform(-5, 5)
-        elevation = np.random.uniform(-5, 5)
+        distance = np.random.uniform(0., 0.05)
+        azimuth = np.random.uniform(-2, 2)
+        elevation = np.random.uniform(-2, 2)
         self.viewer.cam.distance = self.base_distance + distance
         self.viewer.cam.azimuth = self.base_azimuth + azimuth
         self.viewer.cam.elevation = self.base_elevation + elevation

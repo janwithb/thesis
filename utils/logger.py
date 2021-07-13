@@ -6,6 +6,9 @@ from torch.utils.tensorboard.summary import hparams
 
 
 class Logger:
+    """
+    Tensorboard logging class.
+    """
     def __init__(self, log_dir):
         self._sw = CustomSummaryWriter(log_dir)
 
@@ -63,6 +66,9 @@ class Logger:
 
 
 class CustomSummaryWriter(SummaryWriter):
+    """
+    Class to fix SummaryWriter bug.
+    """
     def add_hparams(self, hparam_dict, metric_dict):
         torch._C._log_api_usage_once("tensorboard.logging.add_hparams")
         if type(hparam_dict) is not dict or type(metric_dict) is not dict:

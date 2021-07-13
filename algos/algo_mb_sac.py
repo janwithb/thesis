@@ -5,17 +5,19 @@ import numpy as np
 
 from tqdm import tqdm
 from torch.nn import functional as F
-
-from agents.sac_agent import SACAgent
-from algos.dreamer_base import DreamerBase
+from agents.policy_agent import PolicyAgent
+from algos.algo_base import AlgoBase
 from models.critic_model import DoubleQCritic
-from models.sac_actor_model import DiagGaussianActor
+from models.actor_model import DiagGaussianActor
 from utils.misc import soft_update_params
 from utils.replay_buffer import ReplayBuffer
 from utils.sampler import Sampler
 
 
-class DreamerSAC(DreamerBase):
+class AlgoModelBasedSAC(AlgoBase):
+    """
+    Model-based variant of the SAC algorithm.
+    """
     def __init__(self, env, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sac_itr = 0
@@ -86,7 +88,15 @@ class DreamerSAC(DreamerBase):
             betas=self.alpha_betas
         )
 
-        self.agent = SACAgent(self.device, self.args.action_range, self.rssm, self.observation_encoder, self.actor)
+        self.agent = PolicyAgent(self.device,
+                                 self.args.action_dim,
+                                 self.args.action_range,
+                                 self.rssm,
+                                 self.observation_encoder,
+                                 self.actor,
+                                 self.args.exploration_noise_var)
+
+        # self.agent = PolicyAgent(self.device, self.args.action_range, self.rssm, self.observation_encoder, self.actor)
         self.sampler = Sampler(env, self.replay_buffer, self.agent)
 
     @property
@@ -312,4 +322,3 @@ class DreamerSAC(DreamerBase):
         self.critic_target.load_state_dict(checkpoint['critic_target_state_dict'])
         self.actor.load_state_dict(checkpoint['actor_state_dict'])
         self.log_alpha = checkpoint['log_alpha']
-

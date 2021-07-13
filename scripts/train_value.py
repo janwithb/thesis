@@ -8,7 +8,7 @@ import dmc_remastered as dmcr
 import envs
 
 from dm_control import suite
-from algos.dreamer_value import DreamerValue
+from algos.algo_dreamer import AlgoDreamer
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
@@ -41,10 +41,10 @@ def parse_args():
     parser.add_argument('--load_buffer_dir', default='', type=str)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
     parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
+    parser.add_argument('--model_iterations', default=1, type=int)
     parser.add_argument('--render_training', default=False, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
@@ -77,9 +77,15 @@ def parse_args():
     parser.add_argument('--gamma', default=0.99, type=float)
     parser.add_argument('--lambda_', default=0.95, type=float)
 
-    # action
-    parser.add_argument('--action_lr', default=8e-5, type=float)
-    parser.add_argument('--action_eps', default=1e-4, type=float)
+    # actor
+    parser.add_argument('--actor_hidden_dim', default=1024, type=int)
+    parser.add_argument('--actor_hidden_depth', default=2, type=int)
+    parser.add_argument('--log_std_min', default=-5, type=int)
+    parser.add_argument('--log_std_max', default=2, type=int)
+    parser.add_argument('--actor_lr', default=1e-4, type=float)
+    parser.add_argument('--actor_beta_min', default=0.9, type=float)
+    parser.add_argument('--actor_beta_max', default=0.999, type=float)
+    parser.add_argument('--actor_update_frequency', default=1, type=int)
 
     # agent
     parser.add_argument('--exploration_noise_var', default=0.3, type=float)
@@ -144,6 +150,10 @@ def main():
     # initialize and preload replay buffer
     args.observation_shape = env.observation_space.shape
     args.action_dim = env.action_space.shape[0]
+    args.action_range = [
+        float(env.action_space.low.min()),
+        float(env.action_space.high.max())
+    ]
     replay_buffer = SequenceReplayBuffer(args.replay_buffer_capacity,
                                          args.observation_shape,
                                          args.action_dim)
@@ -160,7 +170,7 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     # algorithm
-    algorithm = DreamerValue(env, logger, replay_buffer, device, args)
+    algorithm = AlgoDreamer(env, logger, replay_buffer, device, args)
 
     # load model
     if args.load_model:

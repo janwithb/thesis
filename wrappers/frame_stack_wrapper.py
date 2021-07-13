@@ -1,11 +1,14 @@
-from collections import deque
 import numpy as np
 
 from gym.spaces import Box
 from gym import Wrapper
+from collections import deque
 
 
 class FrameStack(Wrapper):
+    """
+    Gym environment wrapper for stacking frames.
+    """
     def __init__(self,
                  env,
                  num_stack=3):

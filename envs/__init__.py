@@ -19,6 +19,23 @@ register(
 )
 
 register(
+    id='FetchReachRandom-v2',
+    entry_point='envs.fetch.reach:FetchReachEnv',
+    kwargs={
+        'reward_type': 'dense',
+        'randomize_light': True,
+        'randomize_camera': True,
+        'randomize_target_color': True,
+        'randomize_target_size': True,
+        'randomize_table_color': True,
+        'randomize_floor_color': True,
+        'randomize_background_color': True,
+        'randomize_robot_color': True
+    },
+    max_episode_steps=250,
+)
+
+register(
     id='FetchReachRandomLight-v2',
     entry_point='envs.fetch.reach:FetchReachEnv',
     kwargs={

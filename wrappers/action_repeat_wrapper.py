@@ -2,6 +2,9 @@ from gym import Wrapper
 
 
 class ActionRepeat(Wrapper):
+    """
+    Gym environment wrapper for repeating actions.
+    """
     def __init__(self,
                  env,
                  num_repeat=5):

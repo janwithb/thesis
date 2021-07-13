@@ -7,13 +7,10 @@ from torch.distributions import Normal
 
 class RecurrentStateSpaceModel(nn.Module):
     """
-    This class includes multiple components
-    Deterministic state model: h_t+1 = f(h_t, s_t, a_t)
-    Stochastic state model (prior): p(s_t+1 | h_t+1)
-    State posterior: q(s_t | h_t, o_t)
-    NOTE: actually, this class takes embedded observation by Encoder class
-    min_stddev is added to stddev same as original implementation
-    Activation function for this class is F.relu same as original implementation
+    This class includes multiple components:
+    - Deterministic state model
+    - Stochastic state model (prior)
+    - State posterior
     """
     def __init__(self, state_dim, rnn_hidden_dim, action_dim,
                  hidden_dim=200, min_stddev=0.1, act=F.relu):
@@ -34,11 +31,6 @@ class RecurrentStateSpaceModel(nn.Module):
         self._outputs = dict()
 
     def forward(self, state, action, rnn_hidden, embedded_next_obs):
-        """
-        h_t+1 = f(h_t, s_t, a_t)
-        Return prior p(s_t+1 | h_t+1) and posterior p(s_t+1 | h_t+1, o_t+1)
-        for model training
-        """
         next_state_prior, rnn_hidden = self.prior(state, action, rnn_hidden)
         self._outputs['next_state_prior_mean'] = next_state_prior.mean
         self._outputs['next_state_prior_std'] = next_state_prior.stddev
@@ -46,13 +38,11 @@ class RecurrentStateSpaceModel(nn.Module):
         next_state_posterior = self.posterior(rnn_hidden, embedded_next_obs)
         self._outputs['next_state_posterior_mean'] = next_state_posterior.mean
         self._outputs['next_state_posterior_std'] = next_state_posterior.stddev
+        # return prior and posterior for model training
         return next_state_prior, next_state_posterior, rnn_hidden
 
     def prior(self, state, action, rnn_hidden):
-        """
-        h_t+1 = f(h_t, s_t, a_t)
-        Compute prior p(s_t+1 | h_t+1)
-        """
+        # compute prior
         hidden = self.act(self.fc_state_action(torch.cat([state, action], dim=1)))
         rnn_hidden = self.rnn(hidden, rnn_hidden)
         hidden = self.act(self.fc_rnn_hidden(rnn_hidden))
@@ -62,9 +52,7 @@ class RecurrentStateSpaceModel(nn.Module):
         return Normal(mean, stddev), rnn_hidden
 
     def posterior(self, rnn_hidden, embedded_obs):
-        """
-        Compute posterior q(s_t | h_t, o_t)
-        """
+        # compute posterior
         hidden = self.act(self.fc_rnn_hidden_embedded_obs(
             torch.cat([rnn_hidden, embedded_obs], dim=1)))
         mean = self.fc_state_mean_posterior(hidden)

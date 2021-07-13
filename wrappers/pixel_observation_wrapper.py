@@ -5,6 +5,9 @@ from gym import ObservationWrapper
 
 
 class PixelObservation(ObservationWrapper):
+    """
+    Observation wrapper that augments the observation with an image.
+    """
     def __init__(self, env, observation_size, normalize=True):
         super(PixelObservation, self).__init__(env)
         self.env = env

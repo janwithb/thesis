@@ -1,10 +1,12 @@
 import torch
-import numpy as np
 
 from torch.distributions import Normal
 
 
 class RandomShooting(object):
+    """
+    Agent that uses the Random Shooting (RS) planning in the learned dynamics model for action determination.
+    """
     def __init__(self,
                  device,
                  action_dim,

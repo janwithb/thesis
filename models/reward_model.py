@@ -6,8 +6,7 @@ from torch.nn import functional as F
 
 class RewardModel(nn.Module):
     """
-    p(r_t | s_t, h_t)
-    Reward model to predict reward from state and rnn hidden state
+    Reward model to predict reward from state and rnn hidden state.
     """
     def __init__(self, feature_size, hidden_dim=300, act=F.relu):
         super(RewardModel, self).__init__()

@@ -2,6 +2,9 @@ from utils.misc import center_crop_image
 
 
 class Sampler:
+    """
+    Class for sampling episodes that returns the episode data (actions, observations, rewards).
+    """
     def __init__(self, env, replay_buffer, agent):
         super().__init__()
 

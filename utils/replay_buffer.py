@@ -3,6 +3,9 @@ import torch
 
 
 class ReplayBuffer(object):
+    """
+    Replay buffer for transitions.
+    """
     def __init__(self, obs_size, action_size, capacity, device):
         self.capacity = capacity
         self.device = device

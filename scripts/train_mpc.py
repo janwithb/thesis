@@ -8,7 +8,7 @@ import dmc_remastered as dmcr
 import envs
 
 from dm_control import suite
-from algos.dreamer_mpc import DreamerMPC
+from algos.algo_shooting_mpc import AlgoShootingMPC
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
@@ -154,7 +154,7 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     # algorithm
-    algorithm = DreamerMPC(env, logger, replay_buffer, device, args)
+    algorithm = AlgoShootingMPC(env, logger, replay_buffer, device, args)
 
     # load model
     if args.load_model:

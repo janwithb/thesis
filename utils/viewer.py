@@ -3,6 +3,9 @@ import cv2
 
 
 class OpenCVImageViewer:
+    """
+    Rendering viewer for dm_control environments.
+    """
     def __init__(self, *, escape_to_exit=False):
         self._escape_to_exit = escape_to_exit
         self._window_name = str(uuid.uuid4())

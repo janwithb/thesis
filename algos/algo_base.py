@@ -11,10 +11,13 @@ from models.rssm_model import RecurrentStateSpaceModel
 from torch.distributions.kl import kl_divergence
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
-from utils.misc import augument_image, soft_update_params, check_mem
+from utils.misc import augument_image
 
 
-class DreamerBase:
+class AlgoBase:
+    """
+    Base algorithm that includes training the latent dynamics model.
+    """
     def __init__(self, logger, replay_buffer, device, args):
         super().__init__()
 
@@ -25,22 +28,8 @@ class DreamerBase:
         self.model_itr = 0
         self.feature_size = args.stochastic_size + args.deterministic_size
 
-        # reserve GPU memory
-        # if device.type == 'cuda':
-        #     total, used = check_mem()
-        #     total = int(total)
-        #     used = int(used)
-        #     available = total - used
-        #     block_mem = int(available * 0.8)
-        #     print('Total GPU memory:', total)
-        #     print('Available GPU memory:', available)
-        #     print('Blocked GPU memory:', block_mem)
-        #     x = torch.rand((256, 1024, block_mem), device=device)
-        #     del x
-
         # encoder model
         self.observation_encoder = ObservationEncoder()
-        self.observation_key_encoder = ObservationEncoder()
 
         # decoder model
         self.observation_decoder = ObservationDecoder(self.feature_size)
@@ -50,7 +39,6 @@ class DreamerBase:
 
         # recurrent state space model
         self.rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
-        self.key_rssm = RecurrentStateSpaceModel(args.stochastic_size, args.deterministic_size, args.action_dim)
 
         # CURL model
         self.embed_size = self.observation_encoder.get_embed_size()
@@ -76,11 +64,9 @@ class DreamerBase:
 
         # gpu settings
         self.observation_encoder.to(self.device)
-        self.observation_key_encoder.to(self.device)
         self.observation_decoder.to(self.device)
         self.reward_model.to(self.device)
         self.rssm.to(self.device)
-        self.key_rssm.to(self.device)
         self.curl_model.to(self.device)
 
         # model optimizer
@@ -89,11 +75,6 @@ class DreamerBase:
     def optimize_model(self):
         # compute model loss
         model_loss, flatten_states, flatten_rnn_hiddens = self.model_loss()
-
-        # update key encoder with ema
-        if self.args.use_key_encoder:
-            soft_update_params(self.observation_encoder, self.observation_key_encoder, self.args.key_encoder_tau)
-            soft_update_params(self.rssm, self.key_rssm, self.args.key_encoder_tau)
 
         # take gradient step
         self.model_optimizer.zero_grad()
@@ -185,11 +166,7 @@ class DreamerBase:
             # embed observations
             embedded_observations_a = self.observation_encoder(observations_a)
             embedded_observations_a = embedded_observations_a.view(self.args.chunk_length, self.args.batch_size, -1)
-            if self.args.use_key_encoder:
-                with torch.no_grad():
-                    embedded_observations_pos = self.observation_key_encoder(observations_pos)
-            else:
-                embedded_observations_pos = self.observation_encoder(observations_pos)
+            embedded_observations_pos = self.observation_encoder(observations_pos)
             embedded_observations_pos = embedded_observations_pos.view(self.args.chunk_length, self.args.batch_size, -1)
 
             # prepare Tensor to maintain states sequence and rnn hidden states sequence
@@ -223,22 +200,14 @@ class DreamerBase:
                                                                                      actions[l],
                                                                                      rnn_hidden_a,
                                                                                      embedded_observations_a[l + 1])
-                if self.args.use_key_encoder:
-                    with torch.no_grad():
-                        (next_state_prior_pos,
-                         next_state_posterior_pos,
-                         rnn_hidden_pos) = self.key_rssm(state_pos,
-                                                         actions[l],
-                                                         rnn_hidden_pos,
-                                                         embedded_observations_pos[l + 1])
-                else:
-                    with torch.no_grad():
-                        (next_state_prior_pos,
-                         next_state_posterior_pos,
-                         rnn_hidden_pos) = self.rssm(state_pos,
-                                                     actions[l],
-                                                     rnn_hidden_pos,
-                                                     embedded_observations_pos[l + 1])
+
+                with torch.no_grad():
+                    (next_state_prior_pos,
+                     next_state_posterior_pos,
+                     rnn_hidden_pos) = self.rssm(state_pos,
+                                                 actions[l],
+                                                 rnn_hidden_pos,
+                                                 embedded_observations_pos[l + 1])
                 state_a = next_state_posterior_a.rsample()
                 state_pos = next_state_posterior_pos.rsample()
                 states_a[l + 1] = state_a

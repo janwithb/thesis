@@ -6,8 +6,7 @@ from torch.nn import functional as F
 
 class ValueModel(nn.Module):
     """
-    Value model to predict state-value of current policy (action_model)
-    from state and rnn_hidden
+    Value model to predict state-value of current policy (action_model).
     """
     def __init__(self, feature_size, hidden_dim=400, act=F.elu):
         super(ValueModel, self).__init__()

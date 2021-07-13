@@ -2,45 +2,54 @@ import os
 import time
 import torch
 import numpy as np
+
 from torch.nn.functional import mse_loss
 from torch.nn.utils import clip_grad_norm_
-
 from tqdm import tqdm
-
-from agents.value_agent import PolicyAgent
-from algos.dreamer_base import DreamerBase
-from models.action_model import ActionModel
+from agents.policy_agent import PolicyAgent
+from algos.algo_base import AlgoBase
+from models.actor_model import DiagGaussianActor
 from models.value_model import ValueModel
 from utils.misc import lambda_target
 from utils.sampler import Sampler
 
 
-class DreamerValue(DreamerBase):
+class AlgoDreamer(AlgoBase):
+    """
+    Dreamer algorithm that includes training an action model and a value model.
+    """
     def __init__(self, env, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.log_std_bounds = [self.args.log_std_min, self.args.log_std_max]
+        self.actor_betas = (self.args.actor_beta_min, self.args.actor_beta_max)
 
         # value model
         self.value_model = ValueModel(self.feature_size)
 
         # action model
-        self.action_model = ActionModel(self.feature_size, self.args.action_dim)
+        self.action_model = DiagGaussianActor(self.feature_size,
+                                              self.args.action_dim,
+                                              self.args.actor_hidden_dim,
+                                              self.args.actor_hidden_depth,
+                                              self.log_std_bounds)
 
         # gpu settings
         self.value_model.to(self.device)
         self.action_model.to(self.device)
 
-        # action model optimizer
+        # value model optimizer
         self.value_model_optimizer = torch.optim.Adam(self.value_model.parameters(),
                                                       lr=self.args.value_lr,
                                                       eps=self.args.value_eps)
 
-        # value model optimizer
+        # action model optimizer
         self.action_model_optimizer = torch.optim.Adam(self.action_model.parameters(),
-                                                       lr=self.args.action_lr,
-                                                       eps=self.args.action_eps)
+                                                       lr=self.args.actor_lr,
+                                                       betas=self.actor_betas)
 
         self.agent = PolicyAgent(self.device,
                                  self.args.action_dim,
+                                 self.args.action_range,
                                  self.rssm,
                                  self.observation_encoder,
                                  self.action_model,
@@ -77,7 +86,7 @@ class DreamerValue(DreamerBase):
             # model training loop
             for _ in range(self.args.model_iterations):
                 flatten_states, flatten_rnn_hiddens = self.optimize_model()
-                self.optimize_value(flatten_states, flatten_rnn_hiddens)
+                self.optimize_dreamer(flatten_states, flatten_rnn_hiddens)
 
             # save model frequently
             if self.args.save_iter_model and episode % self.args.save_iter_model_freq == 0:
@@ -104,7 +113,7 @@ class DreamerValue(DreamerBase):
                 self.logger.log('eval/eval_time', eval_time, episode)
                 self.logger.log_video('eval/ep_video', video, episode)
 
-    def optimize_value(self, flatten_states, flatten_rnn_hiddens):
+    def optimize_dreamer(self, flatten_states, flatten_rnn_hiddens):
         action_loss, value_loss = self.get_losses(flatten_states, flatten_rnn_hiddens)
         self.value_model_optimizer.zero_grad()
         value_loss.backward(retain_graph=True)
@@ -121,7 +130,7 @@ class DreamerValue(DreamerBase):
             self.value_model.log(self.logger, self.model_itr)
 
     def get_losses(self, flatten_states, flatten_rnn_hiddens):
-        # detach gradient because Dreamer doesn't update model with actor-critic loss
+        # detach gradient because Dreamer does not update model with actor-critic loss
         flatten_states = flatten_states.detach()
         flatten_rnn_hiddens = flatten_rnn_hiddens.detach()
 
@@ -137,7 +146,9 @@ class DreamerValue(DreamerBase):
 
         # compute imagined trajectory using action from action_model
         for h in range(1, self.args.imagination_horizon + 1):
-            actions = self.action_model(flatten_states, flatten_rnn_hiddens)
+            feature = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
+            dist = self.action_model(feature)
+            actions = dist.rsample()
             flatten_states_prior, flatten_rnn_hiddens = self.rssm.prior(flatten_states, actions, flatten_rnn_hiddens)
             flatten_states = flatten_states_prior.rsample()
             imagined_states[h] = flatten_states

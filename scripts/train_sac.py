@@ -8,7 +8,7 @@ import dmc_remastered as dmcr
 import envs
 
 from dm_control import suite
-from algos.dreamer_sac import DreamerSAC
+from algos.algo_mb_sac import AlgoModelBasedSAC
 from wrappers.action_repeat_wrapper import ActionRepeat
 from wrappers.frame_stack_wrapper import FrameStack
 from utils.logger import Logger
@@ -25,7 +25,7 @@ def parse_args():
 
     # environment
     parser.add_argument('--env_type', default='dm_control', type=str)
-    parser.add_argument('--env_name', default='FetchReach-v2', type=str)
+    parser.add_argument('--env_name', default='FetchReachRandomTarget-v2', type=str)
     parser.add_argument('--domain_name', default='cheetah', type=str)
     parser.add_argument('--task_name', default='run', type=str)
     parser.add_argument('--seed', default=0, type=int)
@@ -42,12 +42,12 @@ def parse_args():
     parser.add_argument('--sac_replay_buffer_capacity', default=4000000, type=int)
 
     # train
-    parser.add_argument('--init_episodes', default=5, type=int)
+    parser.add_argument('--init_episodes', default=1, type=int)
     parser.add_argument('--agent_episodes', default=1, type=int)
-    parser.add_argument('--training_iterations', default=1000, type=int)
-    parser.add_argument('--model_iterations', default=100, type=int)
-    parser.add_argument('--sac_iterations', default=1000, type=int)
-    parser.add_argument('--render_training', default=False, action='store_true')
+    parser.add_argument('--training_iterations', default=100, type=int)
+    parser.add_argument('--model_iterations', default=1, type=int)
+    parser.add_argument('--sac_iterations', default=1, type=int)
+    parser.add_argument('--render_training', default=True, action='store_true')
     parser.add_argument('--batch_size', default=50, type=int)
     parser.add_argument('--chunk_length', default=50, type=int)
     parser.add_argument('--grad_clip', default=100.0, type=float)
@@ -93,6 +93,9 @@ def parse_args():
     parser.add_argument('--actor_beta_min', default=0.9, type=float)
     parser.add_argument('--actor_beta_max', default=0.999, type=float)
     parser.add_argument('--actor_update_frequency', default=1, type=int)
+
+    # agent
+    parser.add_argument('--exploration_noise_var', default=0, type=float)
 
     # alpha
     parser.add_argument('--alpha_lr', default=1e-4, type=float)
@@ -181,7 +184,7 @@ def main():
         torch.cuda.manual_seed(args.seed)
 
     # algorithm
-    algorithm = DreamerSAC(env, logger, replay_buffer, device, args)
+    algorithm = AlgoModelBasedSAC(env, logger, replay_buffer, device, args)
 
     # load model
     if args.load_model:

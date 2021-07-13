@@ -2,13 +2,18 @@ import torch
 import numpy as np
 
 
-class SACAgent(object):
-    def __init__(self, device, action_range, rssm, observation_encoder, actor):
+class PolicyAgent(object):
+    """
+    Agent that uses a policy (actor) for action determination.
+    """
+    def __init__(self, device, action_dim, action_range, rssm, observation_encoder, actor, exploration_noise_var):
         self.device = device
+        self.action_dim = action_dim
         self.action_range = action_range
         self.rssm = rssm
         self.observation_encoder = observation_encoder
         self.actor = actor
+        self.exploration_noise_var = exploration_noise_var
         self.rnn_hidden = torch.zeros(1, rssm.rnn_hidden_dim, device=device)
 
     def get_action(self, obs, exploration=False):
@@ -26,6 +31,10 @@ class SACAgent(object):
             # exploration
             if exploration:
                 action = dist.sample()
+                if self.exploration_noise_var > 0:
+                    expl_std = torch.sqrt(torch.as_tensor(self.exploration_noise_var, device=self.device))
+                    expl_mean = torch.tensor(0).to(device=self.device)
+                    action += torch.normal(expl_mean, expl_std, size=(self.action_dim,), device=self.device)
             else:
                 action = dist.mean
             action = action.clamp(*self.action_range)

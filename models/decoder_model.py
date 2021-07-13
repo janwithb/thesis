@@ -6,11 +6,8 @@ from torch.nn import functional as F
 
 class ObservationDecoder(nn.Module):
     """
-        p(o_t | s_t, h_t)
-        Observation model to reconstruct image observation (3, 64, 64)
-        from state and rnn hidden state
-        """
-
+    Observation model to reconstruct image observation (3, 64, 64).
+    """
     def __init__(self, feature_size):
         super(ObservationDecoder, self).__init__()
         self.fc = nn.Linear(feature_size, 1024)

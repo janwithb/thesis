@@ -8,6 +8,9 @@ from utils.misc import mlp, weight_init
 
 
 class TanhTransform(pyd.transforms.Transform):
+    """
+    Tanh-transformation class.
+    """
     domain = pyd.constraints.real
     codomain = pyd.constraints.interval(-1.0, 1.0)
     bijective = True
@@ -34,6 +37,9 @@ class TanhTransform(pyd.transforms.Transform):
 
 
 class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
+    """
+    Transformation class to tanh-transform distributions.
+    """
     def __init__(self, loc, scale):
         self.loc = loc
         self.scale = scale
@@ -51,7 +57,9 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 
 
 class DiagGaussianActor(nn.Module):
-    """torch.distributions implementation of an diagonal Gaussian policy."""
+    """
+    Diagonal Gaussian policy.
+    """
     def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth,
                  log_std_bounds):
         super().__init__()

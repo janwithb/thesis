@@ -6,7 +6,7 @@ import numpy as np
 
 class SequenceReplayBuffer(object):
     """
-    Replay buffer for training with RNN
+    Replay buffer for data sequences.
     """
     def __init__(self, capacity, observation_shape, action_dim):
         self.capacity = capacity

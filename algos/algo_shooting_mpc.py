@@ -4,13 +4,16 @@ import torch
 import numpy as np
 
 from tqdm import tqdm
-from algos.dreamer_base import DreamerBase
+from algos.algo_base import AlgoBase
 from agents.cem_agent import CEM
 from agents.random_shooting_agent import RandomShooting
 from utils.sampler import Sampler
 
 
-class DreamerMPC(DreamerBase):
+class AlgoShootingMPC(AlgoBase):
+    """
+    Online planning algorithm that uses MPC with shooting methods to plan action sequences.
+    """
     def __init__(self, env, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

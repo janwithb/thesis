@@ -1,12 +1,9 @@
 import json
 import os
 
-import numpy as np
 import torch
 import torch.nn as nn
 import kornia
-
-from skimage.util.shape import view_as_windows
 
 
 def make_dir(dir_path):
@@ -56,24 +53,6 @@ def soft_update_params(net, target_net, tau):
         target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
 
-def random_crop(imgs, output_size):
-    n = imgs.shape[:2]
-    batch_size = np.prod(n)
-    imgs = np.reshape(imgs, (batch_size,) + imgs.shape[2:])
-    img_size = imgs.shape[-1]
-    crop_max = img_size - output_size
-    w1 = np.random.randint(0, crop_max, batch_size)
-    h1 = np.random.randint(0, crop_max, batch_size)
-
-    # creates all sliding windows combinations of size (output_size)
-    windows = view_as_windows(imgs, (1, 1, output_size, output_size))[..., 0, 0, :, :]
-
-    # selects a random window for each batch element
-    cropped_imgs = windows[np.arange(batch_size), :, w1, h1]
-    cropped_imgs = np.reshape(cropped_imgs, n + cropped_imgs.shape[1:])
-    return cropped_imgs
-
-
 def center_crop_image(image, output_size, batch=False):
     if not batch:
         h, w = image.shape[1:]
@@ -100,18 +79,6 @@ def augument_image(image):
     )
     augumented_image = transforms(image + 0.5)
     return augumented_image - 0.5
-
-
-def compute_logits(z_a, z_pos, z_dim):
-    n = z_a.shape[:2]
-    batch_size = np.prod(n)
-    z_a = torch.reshape(z_a, (batch_size,) + z_a.shape[2:])
-    z_pos = torch.reshape(z_pos, (batch_size,) + z_pos.shape[2:])
-    W = nn.Parameter(torch.rand(z_dim, z_dim))
-    Wz = torch.matmul(W, z_pos.T)  # (z_dim,B)
-    logits = torch.matmul(z_a, Wz)  # (B,B)
-    logits = logits - torch.max(logits, 1)[0][:, None]
-    return logits
 
 
 def lambda_target(rewards, values, gamma, lambda_):
@@ -151,8 +118,3 @@ def conv_out(h_in, padding, kernel_size, stride):
 
 def conv_out_shape(h_in, padding, kernel_size, stride):
     return tuple(conv_out(x, padding, kernel_size, stride) for x in h_in)
-
-
-def check_mem():
-    mem = os.popen('nvidia-smi --query-gpu=memory.total,memory.used --format=csv,nounits,noheader').read().split(",")
-    return mem

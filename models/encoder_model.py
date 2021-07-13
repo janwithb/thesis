@@ -7,7 +7,7 @@ from utils.misc import conv_out_shape
 
 class ObservationEncoder(nn.Module):
     """
-    Encoder to embed image observation (3, 64, 64) to vector (1024,)
+    Encoder to embed image observation (3, 64, 64) to vector (1024,).
     """
     def __init__(self):
         super(ObservationEncoder, self).__init__()
