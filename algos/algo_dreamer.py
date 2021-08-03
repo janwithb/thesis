@@ -85,7 +85,7 @@ class AlgoDreamer(AlgoBase):
 
             # model training loop
             for _ in range(self.args.model_iterations):
-                flatten_states, flatten_rnn_hiddens = self.optimize_model()
+                flatten_states, flatten_rnn_hiddens, _ = self.optimize_model()
                 self.optimize_dreamer(flatten_states, flatten_rnn_hiddens)
 
             # save model frequently

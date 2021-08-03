@@ -74,7 +74,7 @@ class AlgoBase:
 
     def optimize_model(self):
         # compute model loss
-        model_loss, flatten_states, flatten_rnn_hiddens = self.model_loss()
+        model_loss, flatten_states, flatten_rnn_hiddens, rewards, actions = self.model_loss()
 
         # take gradient step
         self.model_optimizer.zero_grad()
@@ -89,7 +89,7 @@ class AlgoBase:
                 self.observation_decoder.log(self.logger, self.model_itr)
             self.reward_model.log(self.logger, self.model_itr)
             self.rssm.log(self.logger, self.model_itr)
-        return flatten_states, flatten_rnn_hiddens
+        return flatten_states, flatten_rnn_hiddens, rewards, actions
 
     def model_loss(self):
         if self.args.image_loss_type in ('reconstruction', 'obs_embed_contrast'):
@@ -249,7 +249,7 @@ class AlgoBase:
             self.logger.log('train_model/reward_loss', reward_loss.item(), self.model_itr)
             self.logger.log('train_model/kl_loss', kl_loss.item(), self.model_itr)
             self.logger.log('train_model/overall_loss', model_loss.item(), self.model_itr)
-        return model_loss, flatten_states, flatten_rnn_hiddens
+        return model_loss, flatten_states, flatten_rnn_hiddens, rewards, actions
 
     def get_video(self, actions, obs):
         with torch.no_grad():

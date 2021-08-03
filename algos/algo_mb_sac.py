@@ -27,10 +27,20 @@ class AlgoModelBasedSAC(AlgoBase):
         self.alpha_betas = (self.args.alpha_beta_min, self.args.alpha_beta_max)
 
         sac_replay_buffer_device = 'cpu'
-        self.sac_replay_buffer = ReplayBuffer(
+        # replay buffer for real data
+        if self.args.use_real_data:
+            self.sac_replay_buffer_real = ReplayBuffer(
+                self.feature_size,
+                self.args.action_dim,
+                self.args.sac_real_replay_buffer_capacity,
+                sac_replay_buffer_device
+            )
+
+        # replay buffer for simulated data
+        self.sac_replay_buffer_sim = ReplayBuffer(
             self.feature_size,
             self.args.action_dim,
-            self.args.sac_replay_buffer_capacity,
+            self.args.sac_sim_replay_buffer_capacity,
             sac_replay_buffer_device
         )
 
@@ -132,12 +142,16 @@ class AlgoModelBasedSAC(AlgoBase):
 
             # model training loop
             for _ in range(self.args.model_iterations):
-                flatten_states, flatten_rnn_hiddens = self.optimize_model()
-                self.update_sac_replay_buffer(flatten_states, flatten_rnn_hiddens)
+                flatten_states, flatten_rnn_hiddens, rewards, actions = self.optimize_model()
+                imagination_horizon = self.update_sac_replay_buffer(flatten_states, flatten_rnn_hiddens,
+                                                                    rewards, actions, it)
+            self.logger.log('train/imagination_horizon', imagination_horizon, episode)
 
             # model training loop
             for _ in range(self.args.sac_iterations):
-                self.optimize_sac(self.sac_replay_buffer, self.args.sac_batch_size)
+                real_batch_size, sim_batch_size = self.optimize_sac(self.args.sac_batch_size, it)
+            self.logger.log('train/real_batch_size', real_batch_size, episode)
+            self.logger.log('train/sim_batch_size', sim_batch_size, episode)
 
             # save model frequently
             if self.args.save_iter_model and episode % self.args.save_iter_model_freq == 0:
@@ -155,19 +169,30 @@ class AlgoModelBasedSAC(AlgoBase):
                                                                                      render=self.args.render_training)
                 mean_ep_reward = np.mean(all_episode_rewards)
                 best_ep_reward = np.max(all_episode_rewards)
-                video = self.get_video(actions, obs)
 
                 # log results
                 eval_time = time.time() - eval_start_time
                 self.logger.log('eval/mean_ep_reward', mean_ep_reward, episode)
                 self.logger.log('eval/best_ep_reward', best_ep_reward, episode)
                 self.logger.log('eval/eval_time', eval_time, episode)
-                self.logger.log_video('eval/ep_video', video, episode)
+                if self.args.full_tb_log:
+                    video = self.get_video(actions, obs)
+                    self.logger.log_video('eval/ep_video', video, episode)
 
-    def update_sac_replay_buffer(self, flatten_states, flatten_rnn_hiddens):
+    def update_sac_replay_buffer(self, flatten_states, flatten_rnn_hiddens, rewards, actions, it):
         with torch.no_grad():
             flatten_states = flatten_states.detach()
             flatten_rnn_hiddens = flatten_rnn_hiddens.detach()
+            features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1).reshape((self.args.chunk_length,
+                                                                                        self.args.chunk_length, -1))
+            done = torch.zeros(rewards[:, 0, :].shape, dtype=torch.bool)
+            done_no_max = torch.zeros(rewards[:, 0, :].shape, dtype=torch.bool)
+
+            # update replay buffer with real data
+            if self.args.use_real_data:
+                for t in range(self.args.chunk_length - 1):
+                    self.sac_replay_buffer_real.add_batch(features[:, t, :], actions[:, t, :], rewards[:, t, :],
+                                                          features[:, t + 1, :], done, done_no_max)
 
             # prepare tensor to maintain imagined trajectory's states and rnn_hiddens
             imagined_states = torch.zeros(self.args.imagination_horizon + 1,
@@ -179,8 +204,13 @@ class AlgoModelBasedSAC(AlgoBase):
             imagined_states[0] = flatten_states
             imagined_rnn_hiddens[0] = flatten_rnn_hiddens
 
+            # calculate imagination horizon
+            imagination_horizon = round(self.args.imagination_horizon * (1 + self.args.horizon_increase * it))
+            if imagination_horizon >= self.args.max_imagination_horizon:
+                imagination_horizon = self.args.max_imagination_horizon
+
             # compute imagined trajectory using action from action_model
-            for h in range(1, self.args.imagination_horizon + 1):
+            for h in range(1, imagination_horizon + 1):
                 features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
                 dist = self.actor(features)
                 actions = dist.sample()
@@ -192,11 +222,31 @@ class AlgoModelBasedSAC(AlgoBase):
                 next_features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1)
                 done = torch.zeros(imagined_rewards.shape, dtype=torch.bool)
                 done_no_max = torch.zeros(imagined_rewards.shape, dtype=torch.bool)
-                self.sac_replay_buffer.add_batch(features, actions, imagined_rewards, next_features, done, done_no_max)
+                self.sac_replay_buffer_sim.add_batch(features, actions, imagined_rewards,
+                                                     next_features, done, done_no_max)
+            return imagination_horizon
 
-    def optimize_sac(self, replay_buffer, sac_batch_size):
-        # sample transition
-        obs, action, reward, next_obs, not_done, not_done_no_max = replay_buffer.sample(sac_batch_size)
+    def optimize_sac(self, sac_batch_size, it):
+        if self.args.use_real_data:
+            # calculate fractions of real data and simulated data
+            fraction = it / self.args.training_iterations
+            real_batch_size = round(sac_batch_size * (1 - fraction))
+            sim_batch_size = round(sac_batch_size * fraction)
+
+            # sample transitions
+            (real_obs, real_action, real_reward,
+             real_next_obs, real_not_done, real_not_done_no_max) = self.sac_replay_buffer_sim.sample(real_batch_size)
+            (sim_obs, sim_action, sim_reward,
+             sim_next_obs, sim_not_done, sim_not_done_no_max) = self.sac_replay_buffer_sim.sample(sim_batch_size)
+            obs = torch.cat((real_obs, sim_obs), 0)
+            action = torch.cat((real_action, sim_action), 0)
+            reward = torch.cat((real_reward, sim_reward), 0)
+            next_obs = torch.cat((real_next_obs, sim_next_obs), 0)
+            not_done = torch.cat((real_not_done, sim_not_done), 0)
+            not_done_no_max = torch.cat((real_not_done_no_max, sim_not_done_no_max), 0)
+        else:
+            obs, action, reward, next_obs, not_done, not_done_no_max = self.sac_replay_buffer_sim.sample(sac_batch_size)
+
         obs = obs.to(self.device)
         action = action.to(self.device)
         reward = reward.to(self.device)
@@ -217,6 +267,7 @@ class AlgoModelBasedSAC(AlgoBase):
         if self.sac_itr % self.args.critic_target_update_frequency == 0:
             soft_update_params(self.critic, self.critic_target, self.args.critic_tau)
         self.sac_itr += 1
+        return real_batch_size, sim_batch_size
 
     def optimize_critic(self, obs, action, reward, next_obs, not_done):
         # compute critic loss
