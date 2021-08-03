@@ -245,7 +245,9 @@ class AlgoModelBasedSAC(AlgoBase):
             not_done = torch.cat((real_not_done, sim_not_done), 0)
             not_done_no_max = torch.cat((real_not_done_no_max, sim_not_done_no_max), 0)
         else:
-            obs, action, reward, next_obs, not_done, not_done_no_max = self.sac_replay_buffer_sim.sample(sac_batch_size)
+            real_batch_size = 0
+            sim_batch_size = sac_batch_size
+            obs, action, reward, next_obs, not_done, not_done_no_max = self.sac_replay_buffer_sim.sample(sim_batch_size)
 
         obs = obs.to(self.device)
         action = action.to(self.device)
