@@ -183,10 +183,19 @@ class AlgoModelBasedSAC(AlgoBase):
         with torch.no_grad():
             flatten_states = flatten_states.detach()
             flatten_rnn_hiddens = flatten_rnn_hiddens.detach()
-            features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1).reshape((self.args.chunk_length,
+            features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1).reshape((self.args.batch_size,
                                                                                         self.args.chunk_length, -1))
             done = torch.zeros(rewards[:, 0, :].shape, dtype=torch.bool)
             done_no_max = torch.zeros(rewards[:, 0, :].shape, dtype=torch.bool)
+
+            # larger batch size because of augmentation
+            if self.args.image_loss_type in ('augment_contrast', 'aug_obs_embed_contrast'):
+                features = torch.cat([flatten_states, flatten_rnn_hiddens], dim=1).reshape((2 * self.args.batch_size,
+                                                                                            self.args.chunk_length, -1))
+                done = torch.cat([done, done], dim=0)
+                done_no_max = torch.cat([done_no_max, done_no_max], dim=0)
+                rewards = torch.cat([rewards, rewards], dim=0)
+                actions = torch.cat([actions, actions], dim=0)
 
             # update replay buffer with real data
             if self.args.use_real_data:
