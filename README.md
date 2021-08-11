@@ -94,3 +94,10 @@ training more real data is used, at the end of the training more simulated data 
 
 ## Results
 ![img.png](images/img_1.png)
+
+## Credits
+This repository uses large chunks of code from:
+- [PlaNet_PyTorch](https://github.com/cross32768/PlaNet_PyTorch)
+- [Dreamer_PyTorch](https://github.com/cross32768/Dreamer_PyTorch)
+- [CURL](https://github.com/MishaLaskin/curl)
+- [SAC+AE](https://github.com/denisyarats/pytorch_sac_ae)
