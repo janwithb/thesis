@@ -70,11 +70,9 @@ def parse_args():
     parser.add_argument('--model_eps', default=1e-4, type=float)
     parser.add_argument('--free_nats', default=3, type=int)
     parser.add_argument('--kl_scale', default=1, type=int)
-    parser.add_argument('--image_loss_type', default='reconstruction', type=str)
+    parser.add_argument('--image_loss_type', default='aug_obs_embed_contrast', type=str)
 
     # curl
-    parser.add_argument('--use_key_encoder', default=False, action='store_true')
-    parser.add_argument('--key_encoder_tau', default=0.005, type=float)
     parser.add_argument('--similarity', default='bilinear_product', type=str)
     parser.add_argument('--curl_temperature', default=1, type=float)
 

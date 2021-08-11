@@ -65,8 +65,6 @@ def parse_args():
     parser.add_argument('--image_loss_type', default='reconstruction', type=str)
 
     # curl
-    parser.add_argument('--use_key_encoder', default=False, action='store_true')
-    parser.add_argument('--key_encoder_tau', default=0.005, type=float)
     parser.add_argument('--similarity', default='bilinear_product', type=str)
     parser.add_argument('--curl_temperature', default=1, type=float)
 
