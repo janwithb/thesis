@@ -36,27 +36,41 @@ backpropagates through a value model to optimize the policy.
 
 Train the agent with MB-SAC:
 ```
+cd scripts
 python train_mb_sac.py
 ```
 
 Train the agent with Dreamer:
 ```
+cd scripts
 python train_dreamer.py
 ```
 
 Train the agent with MPC-CEM:
 ```
+cd scripts
 python train_shooting_mpc.py
 ```
 
 Train the agent with SAC (baseline):
 ```
+cd scripts
 python train_baseline.py
 ```
 
 In your console, you should see training progress printouts that look like:
 ```
 Training progress:   8%|▊         | 8/100 [04:11<45:58, 29.99s/it]
+```
+
+### Load model
+Instead of starting a training run from scratch it is possible to load the model weights from previous training runs.
+Exemplary model weights are given in the `/output` folder. 
+
+Load a model and continue training:
+```
+cd scripts
+python train_mb_sac.py --load_model --load_model_dir "../output/mbsac_contrastive/cheetah-run-2021-05-04-06-34-28/model/model_final"
 ```
 
 ### Configuration
