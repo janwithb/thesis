@@ -13,6 +13,11 @@ Get dependencies:
 pip install -r requirements.txt
 ```
 
+Install the repository packages from source:
+```
+pip install -e .
+```
+
 Install [DMC Remastered](https://github.com/QData/dmc_remastered) from source:
 ```
 git clone https://github.com/QData/dmc_remastered.git
