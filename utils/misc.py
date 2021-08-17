@@ -72,10 +72,10 @@ def augument_image(image):
         nn.ReplicationPad2d(4),
         kornia.augmentation.RandomCrop(size=(64, 64)),
         kornia.augmentation.ColorJitter(0.2, 0.3, 0.2, 0.3),
-        kornia.augmentation.RandomErasing(),
-        kornia.augmentation.RandomHorizontalFlip(),
-        kornia.augmentation.RandomVerticalFlip(),
-        kornia.augmentation.RandomRotation(degrees=5.0)
+        #kornia.augmentation.RandomErasing(),
+        #kornia.augmentation.RandomHorizontalFlip(),
+        #kornia.augmentation.RandomVerticalFlip(),
+        #kornia.augmentation.RandomRotation(degrees=5.0)
     )
     augumented_image = transforms(image + 0.5)
     return augumented_image - 0.5
