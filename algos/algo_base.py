@@ -160,8 +160,8 @@ class AlgoBase:
 
             # augment images
             size = self.args.observation_size
-            observations_a = augument_image(observations_a.reshape(-1, 3, size, size))
-            observations_pos = augument_image(observations_pos.reshape(-1, 3, size, size))
+            observations_a = augument_image(observations_a.reshape(-1, 3, size, size), self.args.data_augs)
+            observations_pos = augument_image(observations_pos.reshape(-1, 3, size, size), self.args.data_augs)
 
             # embed observations
             embedded_observations_a = self.observation_encoder(observations_a)

@@ -75,6 +75,7 @@ def parse_args():
     # curl
     parser.add_argument('--similarity', default='bilinear_product', type=str)
     parser.add_argument('--curl_temperature', default=1, type=float)
+    parser.add_argument('--data_augs', default='crop jitter', type=str)
 
     # critic
     parser.add_argument('--critic_hidden_dim', default=1024, type=int)
@@ -184,6 +185,11 @@ def main():
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
+
+    # check if augmentations are correct
+    available_augmentations = {'crop', 'jitter', 'erase', 'hflip', 'vflip', 'rot'}
+    for aug_name in args.data_augs.split(' '):
+        assert aug_name in available_augmentations, 'invalid data aug string'
 
     # algorithm
     algorithm = AlgoModelBasedSAC(env, logger, replay_buffer, device, args)

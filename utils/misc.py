@@ -67,16 +67,25 @@ def center_crop_image(image, output_size, batch=False):
     return image
 
 
-def augument_image(image):
-    transforms = nn.Sequential(
-        nn.ReplicationPad2d(4),
-        kornia.augmentation.RandomCrop(size=(64, 64)),
-        kornia.augmentation.ColorJitter(0.2, 0.3, 0.2, 0.3),
-        #kornia.augmentation.RandomErasing(),
-        #kornia.augmentation.RandomHorizontalFlip(),
-        #kornia.augmentation.RandomVerticalFlip(),
-        #kornia.augmentation.RandomRotation(degrees=5.0)
-    )
+def augument_image(image, data_augs):
+    modules = []
+    data_augs_list = data_augs.split()
+
+    if 'crop' in data_augs_list:
+        modules.append(nn.ReplicationPad2d(4))
+        modules.append(kornia.augmentation.RandomCrop(size=(64, 64)))
+    if 'jitter' in data_augs_list:
+        modules.append(kornia.augmentation.ColorJitter(0.2, 0.3, 0.2, 0.3))
+    if 'erase' in data_augs_list:
+        modules.append(kornia.augmentation.RandomErasing())
+    if 'hflip' in data_augs_list:
+        modules.append(kornia.augmentation.RandomHorizontalFlip())
+    if 'vflip' in data_augs_list:
+        modules.append(kornia.augmentation.RandomVerticalFlip())
+    if 'rot' in data_augs_list:
+        modules.append(kornia.augmentation.RandomRotation(degrees=5.0))
+
+    transforms = nn.Sequential(*modules)
     augumented_image = transforms(image + 0.5)
     return augumented_image - 0.5
 

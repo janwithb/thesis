@@ -101,6 +101,16 @@ Using a contrastive loss for representation learning requires setting a similari
 configuration variable to `dot_product`, `bilinear_product`, or `cosine`. The cosine similarity may be further regulated
 by the temperature parameter `curl_temperature`.
 
+#### Image Augmentations
+The set of image augmentations used for representation learning is configured in `data_augs`. The following image augmentations
+are available:
+- `crop`: random cropping
+- `jitter`: color jitter
+- `erase`: random erasing
+- `hflip`: horizontal flip
+- `vflip`: vertical flip
+- `rot`: random rotation
+
 #### Imagination Horizon
 Increasing the imagination horizon during training may improve the final performance. You can activate 
 the dynamic imagination horizon by setting `horizon_increase` > 0.0. During training the horizon 
